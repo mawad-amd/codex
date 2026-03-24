@@ -1,10 +1,25 @@
+use serde::Deserialize;
+use serde::Serialize;
 use serde_json::Value;
+use std::ffi::OsString;
+use std::path::Path;
 use std::path::PathBuf;
+use std::process::Stdio;
+use std::time::Duration;
+use tokio::process::Command;
+use tokio::time::timeout;
 
 pub(crate) const GPU_INSPECT_TOOL_NAME: &str = "gpu_inspect";
 pub(crate) const GPU_INVENTORY_TOOL_NAME: &str = "gpu_inventory";
 pub(crate) const GPU_PROFILE_TOOL_NAME: &str = "gpu_profile";
 pub(crate) const GPU_VALIDATE_TOOL_NAME: &str = "gpu_validate";
+
+const CODEX_INTELLIKIT_BRIDGE_MODULE_ENV_VAR: &str = "CODEX_INTELLIKIT_BRIDGE_MODULE";
+const CODEX_INTELLIKIT_BRIDGE_SCRIPT_ENV_VAR: &str = "CODEX_INTELLIKIT_BRIDGE_SCRIPT";
+const CODEX_INTELLIKIT_PYTHON_ENV_VAR: &str = "CODEX_INTELLIKIT_PYTHON";
+const CODEX_INTELLIKIT_ROOT_ENV_VAR: &str = "CODEX_INTELLIKIT_ROOT";
+const DEFAULT_BRIDGE_MODULE: &str = "intellikit.codex_bridge";
+const BRIDGE_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub(crate) enum IntelliKitTool {
@@ -49,31 +64,250 @@ pub(crate) struct IntelliKitResponse {
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct IntelliKitRuntime {
-    sidecar_path: Option<PathBuf>,
+    bridge_module: Option<String>,
+    bridge_script: Option<PathBuf>,
+    intellikit_root: Option<PathBuf>,
+    python: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct BridgeConfig {
+    bridge_target: BridgeTarget,
+    intellikit_root: Option<PathBuf>,
+    python: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum BridgeTarget {
+    Module(String),
+    Script(PathBuf),
+}
+
+#[derive(Debug, Serialize)]
+struct BridgeRequest<'a> {
+    arguments: &'a Value,
+    tool: &'a str,
+}
+
+#[derive(Debug, Deserialize)]
+struct BridgeResponse {
+    data: Option<Value>,
+    message: Option<String>,
+    success: bool,
 }
 
 impl IntelliKitRuntime {
     pub(crate) fn from_environment() -> Self {
         Self {
-            sidecar_path: std::env::var_os("CODEX_INTELLIKIT_SIDECAR").map(PathBuf::from),
+            bridge_module: read_trimmed_env(CODEX_INTELLIKIT_BRIDGE_MODULE_ENV_VAR),
+            bridge_script: std::env::var_os(CODEX_INTELLIKIT_BRIDGE_SCRIPT_ENV_VAR)
+                .map(PathBuf::from),
+            intellikit_root: std::env::var_os(CODEX_INTELLIKIT_ROOT_ENV_VAR).map(PathBuf::from),
+            python: std::env::var_os(CODEX_INTELLIKIT_PYTHON_ENV_VAR).map(PathBuf::from),
         }
     }
 
     pub(crate) async fn invoke(&self, request: IntelliKitRequest) -> IntelliKitResponse {
-        let configured_sidecar = self
-            .sidecar_path
-            .as_ref()
-            .map(|path| format!("Configured sidecar path: {}.", path.display()))
-            .unwrap_or_else(|| {
-                "No IntelliKit sidecar is configured; set CODEX_INTELLIKIT_SIDECAR once the bridge exists.".to_string()
-            });
-
-        IntelliKitResponse {
-            message: format!(
-                "The native IntelliKit GPU integration is scaffolded, but the execution bridge is not implemented yet. Requested tool: {}. {configured_sidecar}",
-                request.tool.as_str()
-            ),
-            success: false,
+        match self.resolve_bridge_config() {
+            Ok(config) => match invoke_bridge(&config, &request).await {
+                Ok(response) => response,
+                Err(message) => IntelliKitResponse {
+                    message,
+                    success: false,
+                },
+            },
+            Err(message) => IntelliKitResponse {
+                message: format!(
+                    "The native IntelliKit runtime is not available for `{}`. {message}",
+                    request.tool.as_str()
+                ),
+                success: false,
+            },
         }
     }
+
+    fn resolve_bridge_config(&self) -> Result<BridgeConfig, String> {
+        let python = match self.python.clone() {
+            Some(path) => path,
+            None => which::which("python3")
+                .or_else(|_| which::which("python"))
+                .map_err(|_| {
+                    format!(
+                        "No Python interpreter was found. Set {CODEX_INTELLIKIT_PYTHON_ENV_VAR} or install `python3`."
+                    )
+                })?,
+        };
+
+        let bridge_target = if let Some(script) = self.bridge_script.clone() {
+            BridgeTarget::Script(resolve_script_path(
+                &script,
+                self.intellikit_root.as_deref(),
+            ))
+        } else {
+            let module = self
+                .bridge_module
+                .clone()
+                .unwrap_or_else(|| DEFAULT_BRIDGE_MODULE.to_string());
+            BridgeTarget::Module(module)
+        };
+
+        Ok(BridgeConfig {
+            bridge_target,
+            intellikit_root: self.intellikit_root.clone(),
+            python,
+        })
+    }
 }
+
+async fn invoke_bridge(
+    config: &BridgeConfig,
+    request: &IntelliKitRequest,
+) -> Result<IntelliKitResponse, String> {
+    let request_json = serde_json::to_string(&BridgeRequest {
+        tool: request.tool.as_str(),
+        arguments: &request.arguments,
+    })
+    .map_err(|err| format!("failed to serialize IntelliKit request: {err}"))?;
+
+    let mut command = Command::new(&config.python);
+    command
+        .stdin(Stdio::null())
+        .stderr(Stdio::piped())
+        .stdout(Stdio::piped());
+
+    match &config.bridge_target {
+        BridgeTarget::Module(module) => {
+            command.arg("-m").arg(module);
+        }
+        BridgeTarget::Script(path) => {
+            command.arg(path);
+        }
+    }
+
+    command.arg("--request-json").arg(&request_json);
+
+    if let Some(root) = &config.intellikit_root {
+        command.current_dir(root);
+        if let Some(pythonpath) = extend_pythonpath(root) {
+            command.env("PYTHONPATH", pythonpath);
+        }
+    }
+
+    let output = timeout(BRIDGE_TIMEOUT, command.output())
+        .await
+        .map_err(|_| {
+            format!(
+                "IntelliKit bridge timed out after {} seconds while running `{}`.",
+                BRIDGE_TIMEOUT.as_secs(),
+                request.tool.as_str()
+            )
+        })?
+        .map_err(|err| format!("failed to launch IntelliKit bridge: {err}"))?;
+
+    if !output.status.success() {
+        return Err(format_process_failure(
+            request.tool,
+            output.status,
+            &output.stdout,
+            &output.stderr,
+        ));
+    }
+
+    parse_bridge_response(&output.stdout)
+}
+
+fn extend_pythonpath(root: &Path) -> Option<OsString> {
+    let mut paths = vec![root.to_path_buf()];
+    if let Some(existing) = std::env::var_os("PYTHONPATH") {
+        paths.extend(std::env::split_paths(&existing));
+    }
+
+    std::env::join_paths(paths).ok()
+}
+
+fn format_process_failure(
+    tool: IntelliKitTool,
+    status: std::process::ExitStatus,
+    stdout: &[u8],
+    stderr: &[u8],
+) -> String {
+    let stdout = String::from_utf8_lossy(stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(stderr).trim().to_string();
+    let mut details = vec![format!(
+        "IntelliKit bridge failed for `{}` with status {status}.",
+        tool.as_str()
+    )];
+
+    if !stderr.is_empty() {
+        details.push(format!("stderr: {stderr}"));
+    }
+    if !stdout.is_empty() {
+        details.push(format!("stdout: {stdout}"));
+    }
+
+    details.join(" ")
+}
+
+fn parse_bridge_response(stdout: &[u8]) -> Result<IntelliKitResponse, String> {
+    let response: BridgeResponse = serde_json::from_slice(stdout).map_err(|err| {
+        let stdout = String::from_utf8_lossy(stdout).trim().to_string();
+        if stdout.is_empty() {
+            format!("IntelliKit bridge returned invalid JSON: {err}")
+        } else {
+            format!("IntelliKit bridge returned invalid JSON: {err}. stdout: {stdout}")
+        }
+    })?;
+
+    let mut sections = Vec::new();
+    if let Some(message) = response
+        .message
+        .as_deref()
+        .map(str::trim)
+        .filter(|message| !message.is_empty())
+    {
+        sections.push(message.to_string());
+    }
+    if let Some(data) = response.data {
+        let data = serde_json::to_string_pretty(&data)
+            .map_err(|err| format!("failed to render IntelliKit response data: {err}"))?;
+        sections.push(data);
+    }
+
+    let message = if sections.is_empty() {
+        match response.success {
+            true => "IntelliKit bridge completed successfully.".to_string(),
+            false => "IntelliKit bridge reported a failure without a message.".to_string(),
+        }
+    } else {
+        sections.join("\n\n")
+    };
+
+    Ok(IntelliKitResponse {
+        message,
+        success: response.success,
+    })
+}
+
+fn read_trimmed_env(key: &str) -> Option<String> {
+    let value = std::env::var(key).ok()?;
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn resolve_script_path(script: &Path, intellikit_root: Option<&Path>) -> PathBuf {
+    if script.is_absolute() {
+        return script.to_path_buf();
+    }
+
+    match intellikit_root {
+        Some(root) => root.join(script),
+        None => script.to_path_buf(),
+    }
+}
+
+#[cfg(test)]
+mod tests;

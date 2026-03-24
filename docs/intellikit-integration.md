@@ -11,7 +11,13 @@ This repository now carries native scaffolding for an IntelliKit-backed GPU tool
   - `gpu_inspect`
   - `gpu_validate`
 - These tools are first-class Codex built-ins, not MCP passthroughs.
-- The current implementation is intentionally compile-state only: the handler validates arguments and returns a structured "runtime unavailable" response until the IntelliKit execution bridge is wired up.
+- The current implementation includes a native subprocess bridge for IntelliKit-backed execution.
+- The bridge is environment-driven for now:
+  - `CODEX_INTELLIKIT_PYTHON` overrides the Python interpreter.
+  - `CODEX_INTELLIKIT_BRIDGE_SCRIPT` points at an explicit Python bridge script.
+  - `CODEX_INTELLIKIT_BRIDGE_MODULE` overrides the default module target (`intellikit.codex_bridge`).
+  - `CODEX_INTELLIKIT_ROOT` sets the bridge working directory and is prepended to `PYTHONPATH`.
+- `gpu_inventory` can execute end-to-end once the Python-side bridge exists on the target system. The other GPU tools use the same bridge contract and can be implemented on the IntelliKit side without changing Codex's tool surface again.
 
 ## Immediate Goal
 
@@ -23,11 +29,11 @@ The current slice establishes Codex-side ownership for:
 - agent-facing instructions
 - a future runtime boundary
 
-This keeps later work focused on attaching a real sidecar or in-process bridge, rather than redesigning the agent surface.
+This keeps later work focused on the Python/runtime side of IntelliKit, rather than redesigning the agent surface inside Codex.
 
 ## Next Step
 
-Wire `IntelliKitRuntime` in `codex-rs/core/src/intellikit/mod.rs` to a real execution backend on a GPU-enabled system. The intended bridge contract is:
+Deploy a Python-side bridge on a GPU-enabled system that accepts `--request-json <json>` and writes a single JSON object to stdout:
 
 - Codex owns planning and tool selection.
 - IntelliKit owns GPU-domain execution and artifact production.
