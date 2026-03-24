@@ -55,7 +55,10 @@ The scaffold script already implements:
 
 - `gpu_inventory`
   - returns platform, interpreter, IntelliKit subcomponent detection, and ROCm command discovery data
-- `gpu_profile`, `gpu_inspect`, `gpu_validate`
+- `gpu_profile`
+  - runs a real Metrix profiling step for the requested target and maps `objective` onto Metrix profiles such as `quick`, `memory`, `memory_bandwidth`, `memory_cache`, `compute`, or timing-only collection
+  - requires the IntelliKit `metrix` package and its runtime dependencies to already be installed in the selected Python environment
+- `gpu_inspect`, `gpu_validate`
   - return structured "not implemented yet" responses until IntelliKit execution is wired
 
 You can also test the bridge directly before launching Codex:

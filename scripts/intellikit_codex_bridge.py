@@ -21,6 +21,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,8 @@ KNOWN_TOOLS = {
 }
 COMMAND_TIMEOUT_SECONDS = 5
 COMMAND_OUTPUT_LIMIT = 4000
+PROFILE_TIMEOUT_SECONDS = 300
+PROFILE_KERNEL_LIMIT = 10
 TOOLKIT_PACKAGES = {
     "accordo": {"module": "accordo", "entrypoints": ["accordo", "accordo-mcp"]},
     "kerncap": {"module": "kerncap", "entrypoints": ["kerncap", "kerncap-mcp"]},
@@ -76,7 +79,30 @@ def main() -> int:
         message, data = handle_gpu_inventory()
         return emit_response(success=True, message=message, data=data)
 
-    if tool in {GPU_PROFILE_TOOL, GPU_INSPECT_TOOL, GPU_VALIDATE_TOOL}:
+    if tool == GPU_PROFILE_TOOL:
+        error = validate_gpu_profile_arguments(arguments)
+        if error is not None:
+            return emit_response(
+                success=False,
+                message=error,
+                data={"tool": tool, "arguments": arguments},
+            )
+        try:
+            message, data = handle_gpu_profile(arguments)
+        except Exception as err:  # pragma: no cover - exercised in GPU environment
+            return emit_response(
+                success=False,
+                message=f"`{tool}` failed: {err}",
+                data={
+                    "tool": tool,
+                    "arguments": arguments,
+                    "metrix": probe_python_module("metrix"),
+                    "rocprofv3": probe_command("rocprofv3", ["--version"]),
+                },
+            )
+        return emit_response(success=True, message=message, data=data)
+
+    if tool in {GPU_INSPECT_TOOL, GPU_VALIDATE_TOOL}:
         return emit_response(
             success=False,
             message=(
@@ -116,6 +142,19 @@ def validate_request(request: Any) -> str | None:
     arguments = request["arguments"]
     if not isinstance(arguments, dict):
         return "Request field `arguments` must be a JSON object."
+
+    return None
+
+
+def validate_gpu_profile_arguments(arguments: dict[str, Any]) -> str | None:
+    target = arguments.get("target")
+    if not isinstance(target, str) or not target.strip():
+        return "Request field `arguments.target` must be a non-empty string for `gpu_profile`."
+
+    for key in ("workload", "objective"):
+        value = arguments.get(key)
+        if value is not None and not isinstance(value, str):
+            return f"Request field `arguments.{key}` must be a string when provided."
 
     return None
 
@@ -173,6 +212,129 @@ def handle_gpu_inventory() -> tuple[str, dict[str, Any]]:
         "commands": command_probes,
     }
     return message, data
+
+
+def handle_gpu_profile(arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    try:
+        from metrix import Metrix
+    except Exception as err:  # pragma: no cover - exercised in GPU environment
+        raise RuntimeError(
+            "Metrix is not importable in this interpreter. Install the IntelliKit "
+            "`metrix` package with its runtime dependencies before using `gpu_profile`. "
+            f"Original error: {err}"
+        ) from err
+
+    target = arguments["target"].strip()
+    workload = arguments.get("workload")
+    objective = arguments.get("objective")
+    command = build_profile_command(target, workload)
+    selected_profile, time_only, rationale = select_profile_mode(objective)
+    timeout_seconds = int(
+        os.environ.get("CODEX_INTELLIKIT_PROFILE_TIMEOUT", PROFILE_TIMEOUT_SECONDS)
+    )
+
+    started = time.time()
+    profiler = Metrix()
+    results = profiler.profile(
+        command=command,
+        profile=selected_profile,
+        time_only=time_only,
+        num_replays=1,
+        aggregate_by_kernel=True,
+        timeout_seconds=timeout_seconds,
+    )
+    elapsed_seconds = time.time() - started
+    kernels = sort_profiled_kernels(results.kernels)
+    displayed_kernels = kernels[:PROFILE_KERNEL_LIMIT]
+    mode = "time-only mode" if time_only else f"profile `{selected_profile}`"
+
+    if results.total_kernels == 0:
+        message = (
+            f"GPU profile completed with Metrix using {mode}, but no GPU kernels were captured "
+            f"for `{command}`."
+        )
+    else:
+        message = (
+            f"GPU profile completed with Metrix using {mode}. "
+            f"Profiled {results.total_kernels} kernels for `{command}`."
+        )
+
+    data = {
+        "command": command,
+        "target": target,
+        "workload": workload,
+        "objective": objective,
+        "arch": profiler.arch,
+        "elapsedSeconds": round(elapsed_seconds, 3),
+        "availableProfiles": profiler.list_profiles(),
+        "selectedMode": {
+            "profile": selected_profile,
+            "timeOnly": time_only,
+            "reason": rationale,
+            "timeoutSeconds": timeout_seconds,
+        },
+        "kernelCount": results.total_kernels,
+        "kernels": [serialize_kernel_results(kernel) for kernel in displayed_kernels],
+        "truncatedKernelCount": max(0, len(kernels) - len(displayed_kernels)),
+        "metrix": probe_python_module("metrix"),
+        "rocprofv3": probe_command("rocprofv3", ["--version"]),
+    }
+    return message, data
+
+
+def build_profile_command(target: str, workload: str | None) -> str:
+    command_parts = [target.strip()]
+    if workload is not None and workload.strip():
+        command_parts.append(workload.strip())
+    return " ".join(command_parts)
+
+
+def select_profile_mode(objective: str | None) -> tuple[str | None, bool, str]:
+    if objective is None or not objective.strip():
+        return "quick", False, "defaulted to the quick Metrix profile"
+
+    normalized = objective.strip().lower()
+    if any(keyword in normalized for keyword in ("latency", "time", "timing", "dispatch")):
+        return None, True, f"mapped objective `{objective}` to timing-focused collection"
+    if "bandwidth" in normalized:
+        return "memory_bandwidth", False, f"mapped objective `{objective}` to memory bandwidth"
+    if "cache" in normalized:
+        return "memory_cache", False, f"mapped objective `{objective}` to cache analysis"
+    if any(
+        keyword in normalized
+        for keyword in ("memory", "hbm", "coalesc", "lds", "atomic")
+    ):
+        return "memory", False, f"mapped objective `{objective}` to the memory profile"
+    if any(
+        keyword in normalized
+        for keyword in ("compute", "flop", "throughput", "arithmetic", "intensity")
+    ):
+        return "compute", False, f"mapped objective `{objective}` to the compute profile"
+    return "quick", False, f"mapped objective `{objective}` to the quick profile"
+
+
+def sort_profiled_kernels(kernels: list[Any]) -> list[Any]:
+    return sorted(kernels, key=lambda kernel: kernel.duration_us.avg, reverse=True)
+
+
+def serialize_kernel_results(kernel: Any) -> dict[str, Any]:
+    return {
+        "name": kernel.name,
+        "durationUs": serialize_statistics(kernel.duration_us),
+        "metrics": {
+            name: serialize_statistics(stats)
+            for name, stats in sorted(kernel.metrics.items())
+        },
+    }
+
+
+def serialize_statistics(stats: Any) -> dict[str, Any]:
+    return {
+        "min": stats.min,
+        "max": stats.max,
+        "avg": stats.avg,
+        "count": stats.count,
+    }
 
 
 def probe_toolkit_component(
