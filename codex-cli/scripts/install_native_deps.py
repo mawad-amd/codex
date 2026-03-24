@@ -23,6 +23,8 @@ CODEX_CLI_ROOT = SCRIPT_DIR.parent
 DEFAULT_WORKFLOW_URL = "https://github.com/openai/codex/actions/runs/17952349351"  # rust-v0.40.0
 VENDOR_DIR_NAME = "vendor"
 RG_MANIFEST = CODEX_CLI_ROOT / "bin" / "rg"
+CODEX_BINARY_NAME = "codex-intellikit"
+CODEX_VENDOR_DIR = "codex-intellikit"
 BINARY_TARGETS = (
     "x86_64-unknown-linux-musl",
     "aarch64-unknown-linux-musl",
@@ -45,9 +47,9 @@ WINDOWS_TARGETS = tuple(target for target in BINARY_TARGETS if "windows" in targ
 
 BINARY_COMPONENTS = {
     "codex": BinaryComponent(
-        artifact_prefix="codex",
-        dest_dir="codex",
-        binary_basename="codex",
+        artifact_prefix=CODEX_BINARY_NAME,
+        dest_dir=CODEX_VENDOR_DIR,
+        binary_basename=CODEX_BINARY_NAME,
     ),
     "codex-responses-api-proxy": BinaryComponent(
         artifact_prefix="codex-responses-api-proxy",
@@ -56,13 +58,13 @@ BINARY_COMPONENTS = {
     ),
     "codex-windows-sandbox-setup": BinaryComponent(
         artifact_prefix="codex-windows-sandbox-setup",
-        dest_dir="codex",
+        dest_dir=CODEX_VENDOR_DIR,
         binary_basename="codex-windows-sandbox-setup",
         targets=WINDOWS_TARGETS,
     ),
     "codex-command-runner": BinaryComponent(
         artifact_prefix="codex-command-runner",
-        dest_dir="codex",
+        dest_dir=CODEX_VENDOR_DIR,
         binary_basename="codex-command-runner",
         targets=WINDOWS_TARGETS,
     ),
@@ -169,13 +171,13 @@ def main() -> int:
     if not workflow_url:
         workflow_url = DEFAULT_WORKFLOW_URL
 
-    workflow_id = workflow_url.rstrip("/").split("/")[-1]
-    print(f"Downloading native artifacts from workflow {workflow_id}...")
+    workflow_repo, workflow_id = parse_workflow_reference(workflow_url)
+    print(f"Downloading native artifacts from workflow {workflow_repo}#{workflow_id}...")
 
-    with _gha_group(f"Download native artifacts from workflow {workflow_id}"):
+    with _gha_group(f"Download native artifacts from workflow {workflow_repo}#{workflow_id}"):
         with tempfile.TemporaryDirectory(prefix="codex-native-artifacts-") as artifacts_dir_str:
             artifacts_dir = Path(artifacts_dir_str)
-            _download_artifacts(workflow_id, artifacts_dir)
+            _download_artifacts(workflow_repo, workflow_id, artifacts_dir)
             install_binary_components(
                 artifacts_dir,
                 vendor_dir,
@@ -259,7 +261,20 @@ def fetch_rg(
     return [results[target] for target in targets]
 
 
-def _download_artifacts(workflow_id: str, dest_dir: Path) -> None:
+def parse_workflow_reference(workflow_url: str) -> tuple[str, str]:
+    parsed = urlparse(workflow_url)
+    path_parts = [part for part in parsed.path.split("/") if part]
+    if parsed.netloc != "github.com" or len(path_parts) < 5:
+        raise RuntimeError(f"Unsupported workflow URL: {workflow_url}")
+
+    owner, repo, actions, runs, workflow_id = path_parts[:5]
+    if actions != "actions" or runs != "runs" or not workflow_id:
+        raise RuntimeError(f"Unsupported workflow URL: {workflow_url}")
+
+    return f"{owner}/{repo}", workflow_id
+
+
+def _download_artifacts(workflow_repo: str, workflow_id: str, dest_dir: Path) -> None:
     cmd = [
         "gh",
         "run",
@@ -267,7 +282,7 @@ def _download_artifacts(workflow_id: str, dest_dir: Path) -> None:
         "--dir",
         str(dest_dir),
         "--repo",
-        "openai/codex",
+        workflow_repo,
         workflow_id,
     ]
     subprocess.check_call(cmd)

@@ -6,6 +6,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+$ReleaseRepo = if ([string]::IsNullOrWhiteSpace($env:CODEX_RELEASE_REPO)) { "mawad-amd/codex" } else { $env:CODEX_RELEASE_REPO }
 
 function Write-Step {
     param(
@@ -41,7 +42,7 @@ function Get-ReleaseUrl {
         [string]$ResolvedVersion
     )
 
-    return "https://github.com/openai/codex/releases/download/rust-v$ResolvedVersion/$AssetName"
+    return "https://github.com/$ReleaseRepo/releases/download/rust-v$ResolvedVersion/$AssetName"
 }
 
 function Path-Contains {
@@ -70,9 +71,9 @@ function Resolve-Version {
         return $normalizedVersion
     }
 
-    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/openai/codex/releases/latest"
+    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$ReleaseRepo/releases/latest"
     if (-not $release.tag_name) {
-        Write-Error "Failed to resolve the latest Codex release version."
+        Write-Error "Failed to resolve the latest Codex IntelliKit release version."
         exit 1
     }
 
@@ -111,22 +112,22 @@ switch ($architecture) {
 }
 
 if ([string]::IsNullOrWhiteSpace($env:CODEX_INSTALL_DIR)) {
-    $installDir = Join-Path $env:LOCALAPPDATA "Programs\OpenAI\Codex\bin"
+    $installDir = Join-Path $env:LOCALAPPDATA "Programs\OpenAI\CodexIntelliKit\bin"
 } else {
     $installDir = $env:CODEX_INSTALL_DIR
 }
 
-$codexPath = Join-Path $installDir "codex.exe"
+$codexPath = Join-Path $installDir "codex-intellikit.exe"
 $installMode = if (Test-Path $codexPath) { "Updating" } else { "Installing" }
 
-Write-Step "$installMode Codex CLI"
+Write-Step "$installMode Codex IntelliKit CLI"
 Write-Step "Detected platform: $platformLabel"
 
 New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 
 $resolvedVersion = Resolve-Version
 Write-Step "Resolved version: $resolvedVersion"
-$packageAsset = "codex-npm-$npmTag-$resolvedVersion.tgz"
+$packageAsset = "codex-intellikit-npm-$npmTag-$resolvedVersion.tgz"
 
 $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("codex-install-" + [System.Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
@@ -136,7 +137,7 @@ try {
     $extractDir = Join-Path $tempDir "extract"
     $url = Get-ReleaseUrl -AssetName $packageAsset -ResolvedVersion $resolvedVersion
 
-    Write-Step "Downloading Codex CLI"
+    Write-Step "Downloading Codex IntelliKit CLI"
     Invoke-WebRequest -Uri $url -OutFile $archivePath
 
     New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
@@ -145,9 +146,9 @@ try {
     $vendorRoot = Join-Path $extractDir "package/vendor/$target"
     Write-Step "Installing to $installDir"
     $copyMap = @{
-        "codex/codex.exe" = "codex.exe"
-        "codex/codex-command-runner.exe" = "codex-command-runner.exe"
-        "codex/codex-windows-sandbox-setup.exe" = "codex-windows-sandbox-setup.exe"
+        "codex-intellikit/codex-intellikit.exe" = "codex-intellikit.exe"
+        "codex-intellikit/codex-command-runner.exe" = "codex-command-runner.exe"
+        "codex-intellikit/codex-windows-sandbox-setup.exe" = "codex-windows-sandbox-setup.exe"
         "path/rg.exe" = "rg.exe"
     }
 
@@ -187,10 +188,10 @@ if (-not (Path-Contains -PathValue $userPath -Entry $installDir)) {
 }
 
 if ($pathNeedsNewShell) {
-    Write-Step ('Run now: $env:Path = "{0};$env:Path"; codex' -f $installDir)
-    Write-Step "Or open a new PowerShell window and run: codex"
+    Write-Step ('Run now: $env:Path = "{0};$env:Path"; codex-intellikit' -f $installDir)
+    Write-Step "Or open a new PowerShell window and run: codex-intellikit"
 } else {
-    Write-Step "Run: codex"
+    Write-Step "Run: codex-intellikit"
 }
 
-Write-Host "Codex CLI $resolvedVersion installed successfully."
+Write-Host "Codex IntelliKit CLI $resolvedVersion installed successfully."

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Unified entry point for the Codex CLI.
+// Unified entry point for the Codex IntelliKit CLI.
 
 import { spawn } from "node:child_process";
 import { existsSync } from "fs";
@@ -13,13 +13,14 @@ const __dirname = path.dirname(__filename);
 const require = createRequire(import.meta.url);
 
 const PLATFORM_PACKAGE_BY_TARGET = {
-  "x86_64-unknown-linux-musl": "@openai/codex-linux-x64",
-  "aarch64-unknown-linux-musl": "@openai/codex-linux-arm64",
-  "x86_64-apple-darwin": "@openai/codex-darwin-x64",
-  "aarch64-apple-darwin": "@openai/codex-darwin-arm64",
-  "x86_64-pc-windows-msvc": "@openai/codex-win32-x64",
-  "aarch64-pc-windows-msvc": "@openai/codex-win32-arm64",
+  "x86_64-unknown-linux-musl": "@openai/codex-intellikit-linux-x64",
+  "aarch64-unknown-linux-musl": "@openai/codex-intellikit-linux-arm64",
+  "x86_64-apple-darwin": "@openai/codex-intellikit-darwin-x64",
+  "aarch64-apple-darwin": "@openai/codex-intellikit-darwin-arm64",
+  "x86_64-pc-windows-msvc": "@openai/codex-intellikit-win32-x64",
+  "aarch64-pc-windows-msvc": "@openai/codex-intellikit-win32-arm64",
 };
+const cliPackageName = "@openai/codex-intellikit";
 
 const { platform, arch } = process;
 
@@ -75,12 +76,13 @@ if (!platformPackage) {
   throw new Error(`Unsupported target triple: ${targetTriple}`);
 }
 
-const codexBinaryName = process.platform === "win32" ? "codex.exe" : "codex";
+const codexBinaryName =
+  process.platform === "win32" ? "codex-intellikit.exe" : "codex-intellikit";
 const localVendorRoot = path.join(__dirname, "..", "vendor");
 const localBinaryPath = path.join(
   localVendorRoot,
   targetTriple,
-  "codex",
+  "codex-intellikit",
   codexBinaryName,
 );
 
@@ -95,10 +97,10 @@ try {
     const packageManager = detectPackageManager();
     const updateCommand =
       packageManager === "bun"
-        ? "bun install -g @openai/codex@latest"
-        : "npm install -g @openai/codex@latest";
+        ? `bun install -g ${cliPackageName}@latest`
+        : `npm install -g ${cliPackageName}@latest`;
     throw new Error(
-      `Missing optional dependency ${platformPackage}. Reinstall Codex: ${updateCommand}`,
+      `Missing optional dependency ${platformPackage}. Reinstall Codex IntelliKit: ${updateCommand}`,
     );
   }
 }
@@ -107,15 +109,15 @@ if (!vendorRoot) {
   const packageManager = detectPackageManager();
   const updateCommand =
     packageManager === "bun"
-      ? "bun install -g @openai/codex@latest"
-      : "npm install -g @openai/codex@latest";
+      ? `bun install -g ${cliPackageName}@latest`
+      : `npm install -g ${cliPackageName}@latest`;
   throw new Error(
-    `Missing optional dependency ${platformPackage}. Reinstall Codex: ${updateCommand}`,
+    `Missing optional dependency ${platformPackage}. Reinstall Codex IntelliKit: ${updateCommand}`,
   );
 }
 
 const archRoot = path.join(vendorRoot, targetTriple);
-const binaryPath = path.join(archRoot, "codex", codexBinaryName);
+const binaryPath = path.join(archRoot, "codex-intellikit", codexBinaryName);
 
 // Use an asynchronous spawn instead of spawnSync so that Node is able to
 // respond to signals (e.g. Ctrl-C / SIGINT) while the native binary is

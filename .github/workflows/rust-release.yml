@@ -270,8 +270,8 @@ jobs:
           target="${{ matrix.target }}"
           release_dir="target/${target}/release"
           dmg_root="${RUNNER_TEMP}/codex-dmg-root"
-          volname="Codex (${target})"
-          dmg_path="${release_dir}/codex-${target}.dmg"
+          volname="Codex IntelliKit (${target})"
+          dmg_path="${release_dir}/codex-intellikit-${target}.dmg"
 
           # The previous "MacOS code signing (binaries)" step signs + notarizes the
           # built artifacts in `${release_dir}`. This step packages *those same*
@@ -291,7 +291,7 @@ jobs:
             exit 1
           fi
 
-          ditto "$codex_binary_path" "${dmg_root}/codex"
+          ditto "$codex_binary_path" "${dmg_root}/codex-intellikit"
           ditto "$proxy_binary_path" "${dmg_root}/codex-responses-api-proxy"
 
           rm -f "$dmg_path"
@@ -326,16 +326,16 @@ jobs:
           dest="dist/${{ matrix.target }}"
           mkdir -p "$dest"
 
-          cp target/${{ matrix.target }}/release/codex "$dest/codex-${{ matrix.target }}"
+          cp target/${{ matrix.target }}/release/codex "$dest/codex-intellikit-${{ matrix.target }}"
           cp target/${{ matrix.target }}/release/codex-responses-api-proxy "$dest/codex-responses-api-proxy-${{ matrix.target }}"
 
           if [[ "${{ matrix.target }}" == *linux* ]]; then
-            cp target/${{ matrix.target }}/release/codex.sigstore "$dest/codex-${{ matrix.target }}.sigstore"
+            cp target/${{ matrix.target }}/release/codex.sigstore "$dest/codex-intellikit-${{ matrix.target }}.sigstore"
             cp target/${{ matrix.target }}/release/codex-responses-api-proxy.sigstore "$dest/codex-responses-api-proxy-${{ matrix.target }}.sigstore"
           fi
 
           if [[ "${{ matrix.target }}" == *apple-darwin ]]; then
-            cp target/${{ matrix.target }}/release/codex-${{ matrix.target }}.dmg "$dest/codex-${{ matrix.target }}.dmg"
+            cp target/${{ matrix.target }}/release/codex-intellikit-${{ matrix.target }}.dmg "$dest/codex-intellikit-${{ matrix.target }}.dmg"
           fi
 
       - name: Compress artifacts
@@ -348,8 +348,8 @@ jobs:
           # For compatibility with environments that lack the `zstd` tool we
           # additionally create a `.tar.gz` alongside every binary we publish.
           # The end result is:
-          #   codex-<target>.zst          (existing)
-          #   codex-<target>.tar.gz       (new)
+          #   codex-intellikit-<target>.zst          (existing)
+          #   codex-intellikit-<target>.tar.gz       (new)
 
           # 1. Produce a .tar.gz for every file in the directory *before* we
           #    run `zstd --rm`, because that flag deletes the original files.
@@ -572,7 +572,7 @@ jobs:
   # npm docs: https://docs.npmjs.com/trusted-publishers
   publish-npm:
     # Publish to npm for stable releases and alpha pre-releases with numeric suffixes.
-    if: ${{ needs.release.outputs.should_publish_npm == 'true' }}
+    if: ${{ needs.release.outputs.should_publish_npm == 'true' && github.repository == 'openai/codex' }}
     name: publish-npm
     needs: release
     runs-on: ubuntu-latest
@@ -603,10 +603,10 @@ jobs:
           tag="$RELEASE_TAG"
           mkdir -p dist/npm
           patterns=(
-            "codex-npm-${version}.tgz"
-            "codex-npm-linux-*-${version}.tgz"
-            "codex-npm-darwin-*-${version}.tgz"
-            "codex-npm-win32-*-${version}.tgz"
+            "codex-intellikit-npm-${version}.tgz"
+            "codex-intellikit-npm-linux-*-${version}.tgz"
+            "codex-intellikit-npm-darwin-*-${version}.tgz"
+            "codex-intellikit-npm-win32-*-${version}.tgz"
             "codex-responses-api-proxy-npm-${version}.tgz"
             "codex-sdk-npm-${version}.tgz"
           )
@@ -641,12 +641,12 @@ jobs:
             tag=""
 
             case "${filename}" in
-              codex-npm-linux-*-"${VERSION}".tgz|codex-npm-darwin-*-"${VERSION}".tgz|codex-npm-win32-*-"${VERSION}".tgz)
-                platform="${filename#codex-npm-}"
+              codex-intellikit-npm-linux-*-"${VERSION}".tgz|codex-intellikit-npm-darwin-*-"${VERSION}".tgz|codex-intellikit-npm-win32-*-"${VERSION}".tgz)
+                platform="${filename#codex-intellikit-npm-}"
                 platform="${platform%-${VERSION}.tgz}"
                 tag="${prefix}${platform}"
                 ;;
-              codex-npm-"${VERSION}".tgz|codex-responses-api-proxy-npm-"${VERSION}".tgz|codex-sdk-npm-"${VERSION}".tgz)
+              codex-intellikit-npm-"${VERSION}".tgz|codex-responses-api-proxy-npm-"${VERSION}".tgz|codex-sdk-npm-"${VERSION}".tgz)
                 tag="${NPM_TAG}"
                 ;;
               *)
@@ -684,7 +684,7 @@ jobs:
     needs: release
     # Only publish stable/mainline releases to WinGet; pre-releases include a
     # '-' in the semver string (e.g., 1.2.3-alpha.1).
-    if: ${{ !contains(needs.release.outputs.version, '-') }}
+    if: ${{ !contains(needs.release.outputs.version, '-') && github.repository == 'openai/codex' }}
     # This job only invokes a GitHub Action to open/update the winget-pkgs PR;
     # it does not execute Windows-only tooling, so Linux is sufficient.
     runs-on: ubuntu-latest
@@ -699,7 +699,7 @@ jobs:
           version: ${{ needs.release.outputs.version }}
           release-tag: ${{ needs.release.outputs.tag }}
           fork-user: openai-oss-forks
-          installers-regex: '^codex-(?:x86_64|aarch64)-pc-windows-msvc\.exe\.zip$'
+          installers-regex: '^codex-intellikit-(?:x86_64|aarch64)-pc-windows-msvc\.exe\.zip$'
           token: ${{ secrets.WINGET_PUBLISH_PAT }}
 
   update-branch:
@@ -707,6 +707,7 @@ jobs:
     permissions:
       contents: write
     needs: release
+    if: ${{ github.repository == 'openai/codex' }}
     runs-on: ubuntu-latest
 
     steps:

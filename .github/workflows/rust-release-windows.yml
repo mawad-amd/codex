@@ -104,7 +104,7 @@ jobs:
           output_dir="target/${{ matrix.target }}/release/staged-${{ matrix.bundle }}"
           mkdir -p "$output_dir"
           if [[ "${{ matrix.bundle }}" == "primary" ]]; then
-            cp target/${{ matrix.target }}/release/codex.exe "$output_dir/codex.exe"
+            cp target/${{ matrix.target }}/release/codex.exe "$output_dir/codex-intellikit.exe"
             cp target/${{ matrix.target }}/release/codex-responses-api-proxy.exe "$output_dir/codex-responses-api-proxy.exe"
           else
             cp target/${{ matrix.target }}/release/codex-windows-sandbox-setup.exe "$output_dir/codex-windows-sandbox-setup.exe"
@@ -165,7 +165,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ls -lh target/${{ matrix.target }}/release/codex.exe
+          ls -lh target/${{ matrix.target }}/release/codex-intellikit.exe
           ls -lh target/${{ matrix.target }}/release/codex-responses-api-proxy.exe
           ls -lh target/${{ matrix.target }}/release/codex-windows-sandbox-setup.exe
           ls -lh target/${{ matrix.target }}/release/codex-command-runner.exe
@@ -187,7 +187,7 @@ jobs:
           dest="dist/${{ matrix.target }}"
           mkdir -p "$dest"
 
-          cp target/${{ matrix.target }}/release/codex.exe "$dest/codex-${{ matrix.target }}.exe"
+          cp target/${{ matrix.target }}/release/codex-intellikit.exe "$dest/codex-intellikit-${{ matrix.target }}.exe"
           cp target/${{ matrix.target }}/release/codex-responses-api-proxy.exe "$dest/codex-responses-api-proxy-${{ matrix.target }}.exe"
           cp target/${{ matrix.target }}/release/codex-windows-sandbox-setup.exe "$dest/codex-windows-sandbox-setup-${{ matrix.target }}.exe"
           cp target/${{ matrix.target }}/release/codex-command-runner.exe "$dest/codex-command-runner-${{ matrix.target }}.exe"
@@ -206,9 +206,9 @@ jobs:
           # For compatibility with environments that lack the `zstd` tool we
           # additionally create a `.tar.gz` and `.zip` for every Windows binary.
           # The end result is:
-          #   codex-<target>.zst
-          #   codex-<target>.tar.gz
-          #   codex-<target>.zip
+          #   codex-intellikit-<target>.zst
+          #   codex-intellikit-<target>.tar.gz
+          #   codex-intellikit-<target>.zip
           for f in "$dest"/*; do
             base="$(basename "$f")"
             # Skip files that are already archives (shouldn't happen, but be
@@ -228,7 +228,7 @@ jobs:
             # Create zip archive for Windows binaries.
             # Must run from inside the dest dir so 7z won't embed the
             # directory path inside the zip.
-            if [[ "$base" == "codex-${{ matrix.target }}.exe" ]]; then
+            if [[ "$base" == "codex-intellikit-${{ matrix.target }}.exe" ]]; then
               # Bundle the sandbox helper binaries into the main codex zip so
               # WinGet installs include the required helpers next to codex.exe.
               # Fall back to the single-binary zip if the helpers are missing
