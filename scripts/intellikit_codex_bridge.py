@@ -13,8 +13,10 @@ It is intentionally lightweight:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import importlib.metadata
 import importlib.util
+import io
 import json
 import os
 import platform
@@ -290,19 +292,22 @@ def handle_gpu_profile(arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     )
 
     started = time.time()
-    profiler = Metrix()
-    results = profiler.profile(
-        command=command,
-        profile=selected_profile,
-        time_only=time_only,
-        num_replays=1,
-        aggregate_by_kernel=True,
-        timeout_seconds=timeout_seconds,
+    metrix_logs = capture_python_output(
+        lambda: run_metrix_profile(
+            Metrix,
+            command,
+            selected_profile,
+            time_only,
+            timeout_seconds,
+        )
     )
+    profiler = metrix_logs["profiler"]
+    results = metrix_logs["results"]
     elapsed_seconds = time.time() - started
     kernels = sort_profiled_kernels(results.kernels)
     displayed_kernels = kernels[:PROFILE_KERNEL_LIMIT]
     mode = "time-only mode" if time_only else f"profile `{selected_profile}`"
+    available_profiles = profiler.list_profiles()
 
     if results.total_kernels == 0:
         message = (
@@ -321,7 +326,7 @@ def handle_gpu_profile(arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         workload=workload,
         objective=objective,
         arch=profiler.arch,
-        available_profiles=profiler.list_profiles(),
+        available_profiles=available_profiles,
         selected_profile=selected_profile,
         time_only=time_only,
         rationale=rationale,
@@ -339,7 +344,7 @@ def handle_gpu_profile(arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         "objective": objective,
         "arch": profiler.arch,
         "elapsedSeconds": round(elapsed_seconds, 3),
-        "availableProfiles": profiler.list_profiles(),
+        "availableProfiles": available_profiles,
         "selectedMode": {
             "profile": selected_profile,
             "timeOnly": time_only,
@@ -353,10 +358,48 @@ def handle_gpu_profile(arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
             "artifactId": artifact_id,
             "path": str(artifact_path),
         },
+        "bridgeLogs": {
+            "stderr": metrix_logs["stderr"] or None,
+            "stdout": metrix_logs["stdout"] or None,
+        },
         "metrix": probe_python_module("metrix"),
         "rocprofv3": probe_command("rocprofv3", ["--version"]),
     }
     return message, data
+
+
+def run_metrix_profile(
+    metrix_cls: Any,
+    command: str,
+    selected_profile: str | None,
+    time_only: bool,
+    timeout_seconds: int,
+) -> tuple[Any, Any]:
+    profiler = metrix_cls()
+    results = profiler.profile(
+        command=command,
+        profile=selected_profile,
+        time_only=time_only,
+        num_replays=1,
+        aggregate_by_kernel=True,
+        timeout_seconds=timeout_seconds,
+    )
+    return profiler, results
+
+
+def capture_python_output(callback: Any) -> dict[str, Any]:
+    stdout_buffer = io.StringIO()
+    stderr_buffer = io.StringIO()
+    with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(
+        stderr_buffer
+    ):
+        profiler, results = callback()
+    return {
+        "profiler": profiler,
+        "results": results,
+        "stdout": stdout_buffer.getvalue().strip(),
+        "stderr": stderr_buffer.getvalue().strip(),
+    }
 
 
 def handle_gpu_inspect(arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
