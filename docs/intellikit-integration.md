@@ -18,6 +18,7 @@ This repository now carries native scaffolding for an IntelliKit-backed GPU tool
   - `CODEX_INTELLIKIT_BRIDGE_MODULE` overrides the default module target (`intellikit.codex_bridge`).
   - `CODEX_INTELLIKIT_ROOT` sets the bridge working directory and is prepended to `PYTHONPATH`.
 - `gpu_inventory` can execute end-to-end once the Python-side bridge exists on the target system. The other GPU tools use the same bridge contract and can be implemented on the IntelliKit side without changing Codex's tool surface again.
+- This repo now includes a scaffold bridge script at `scripts/intellikit_codex_bridge.py` that you can point Codex at during bring-up.
 
 ## Immediate Goal
 
@@ -38,3 +39,29 @@ Deploy a Python-side bridge on a GPU-enabled system that accepts `--request-json
 - Codex owns planning and tool selection.
 - IntelliKit owns GPU-domain execution and artifact production.
 - Codex receives typed results and feeds them back into the turn as native tool outputs.
+
+## Bring-Up Path
+
+On a GPU-capable machine, start by pointing Codex at the scaffold bridge:
+
+```bash
+export CODEX_INTELLIKIT_PYTHON=/path/to/python3
+export CODEX_INTELLIKIT_ROOT=/path/to/intellikit
+export CODEX_INTELLIKIT_BRIDGE_SCRIPT=/path/to/codex/scripts/intellikit_codex_bridge.py
+```
+
+The scaffold script already implements:
+
+- `gpu_inventory`
+  - returns platform, interpreter, importability, and ROCm command discovery data
+- `gpu_profile`, `gpu_inspect`, `gpu_validate`
+  - return structured "not implemented yet" responses until IntelliKit execution is wired
+
+You can also test the bridge directly before launching Codex:
+
+```bash
+python scripts/intellikit_codex_bridge.py \
+  --request-json '{"tool":"gpu_inventory","arguments":{}}'
+```
+
+The intended follow-up is to replace the placeholder handlers in the Python bridge with real IntelliKit API calls or command wrappers on the GPU machine.
