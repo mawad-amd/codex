@@ -16,7 +16,7 @@ This repository now carries native scaffolding for an IntelliKit-backed GPU tool
   - `CODEX_INTELLIKIT_PYTHON` overrides the Python interpreter.
   - `CODEX_INTELLIKIT_BRIDGE_SCRIPT` points at an explicit Python bridge script.
   - `CODEX_INTELLIKIT_BRIDGE_MODULE` overrides the default bundled bridge script with an importable Python module.
-  - `CODEX_INTELLIKIT_ROOT` sets the bridge working directory and is prepended to `PYTHONPATH`.
+  - `CODEX_INTELLIKIT_ROOT` only sets the bridge working directory and resolves relative script paths. It does not modify Python import paths.
 - `gpu_inventory` can execute end-to-end once the Python-side bridge exists on the target system. The other GPU tools use the same bridge contract and can be implemented on the IntelliKit side without changing Codex's tool surface again.
 - This repo now includes a scaffold bridge script at `scripts/intellikit_codex_bridge.py` that you can point Codex at during bring-up.
 
@@ -46,9 +46,10 @@ On a GPU-capable machine, start by pointing Codex at the scaffold bridge:
 
 ```bash
 export CODEX_INTELLIKIT_PYTHON=/path/to/python3
-export CODEX_INTELLIKIT_ROOT=/path/to/intellikit
 export CODEX_INTELLIKIT_BRIDGE_SCRIPT=/path/to/codex/scripts/intellikit_codex_bridge.py
 ```
+
+If you use `CODEX_INTELLIKIT_ROOT`, treat it as a working directory only. IntelliKit packages must already be installed into the selected Python environment and discoverable by that interpreter without Codex patching `PYTHONPATH`.
 
 The scaffold script already implements:
 

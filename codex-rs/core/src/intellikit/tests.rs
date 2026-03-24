@@ -169,6 +169,75 @@ print(json.dumps({
     );
 }
 
+#[tokio::test]
+#[serial(intellikit_env)]
+async fn invoke_with_root_sets_working_dir_without_mutating_pythonpath() {
+    let Some(python) = which::which("python3")
+        .ok()
+        .or_else(|| which::which("python").ok())
+    else {
+        return;
+    };
+
+    let temp = tempdir().expect("tempdir");
+    let root = temp.path().join("intellikit");
+    fs::create_dir(&root).expect("create root dir");
+    let script_path = root.join("bridge.py");
+    fs::write(
+        &script_path,
+        r#"import json
+import os
+import sys
+
+request_json = None
+args = sys.argv[1:]
+for index, arg in enumerate(args):
+    if arg == "--request-json":
+        request_json = args[index + 1]
+        break
+
+request = json.loads(request_json)
+print(json.dumps({
+    "success": True,
+    "message": f"handled {request['tool']}",
+    "data": {
+        "cwd": os.getcwd(),
+        "pythonPath": os.environ.get("PYTHONPATH"),
+        "tool": request["tool"],
+    },
+}))
+"#,
+    )
+    .expect("write bridge script");
+
+    let _python = EnvVarGuard::set(CODEX_INTELLIKIT_PYTHON_ENV_VAR, python.as_os_str());
+    let _script = EnvVarGuard::set(
+        CODEX_INTELLIKIT_BRIDGE_SCRIPT_ENV_VAR,
+        OsStr::new("bridge.py"),
+    );
+    let _module = EnvVarGuard::remove(CODEX_INTELLIKIT_BRIDGE_MODULE_ENV_VAR);
+    let _root = EnvVarGuard::set(CODEX_INTELLIKIT_ROOT_ENV_VAR, root.as_os_str());
+    let _pythonpath = EnvVarGuard::remove("PYTHONPATH");
+
+    let runtime = IntelliKitRuntime::from_environment();
+    let response = runtime
+        .invoke(IntelliKitRequest {
+            tool: IntelliKitTool::Inventory,
+            arguments: json!({}),
+        })
+        .await;
+    let canonical_root = root.canonicalize().expect("canonical root");
+
+    assert_eq!(response.success, true);
+    assert_eq!(
+        response.message,
+        format!(
+            "handled gpu_inventory\n\n{{\n  \"cwd\": \"{}\",\n  \"pythonPath\": null,\n  \"tool\": \"gpu_inventory\"\n}}",
+            canonical_root.display()
+        )
+    );
+}
+
 #[test]
 #[serial(intellikit_env)]
 fn resolve_bridge_config_uses_bundled_script_by_default() {
@@ -193,16 +262,4 @@ fn resolve_bridge_config_uses_bundled_script_by_default() {
         config.bridge_target,
         BridgeTarget::Script(default_bridge_script().expect("bundled bridge script should exist"))
     );
-}
-
-#[test]
-fn extend_pythonpath_adds_src_layout_when_present() {
-    let temp = tempdir().expect("tempdir");
-    let src = temp.path().join("src");
-    fs::create_dir(&src).expect("create src dir");
-
-    let pythonpath = extend_pythonpath(temp.path()).expect("pythonpath should resolve");
-    let paths: Vec<_> = std::env::split_paths(&pythonpath).collect();
-
-    assert_eq!(paths, vec![temp.path().to_path_buf(), src]);
 }

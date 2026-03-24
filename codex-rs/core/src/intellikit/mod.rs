@@ -1,7 +1,6 @@
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
-use std::ffi::OsString;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -190,9 +189,6 @@ async fn invoke_bridge(
 
     if let Some(root) = &config.intellikit_root {
         command.current_dir(root);
-        if let Some(pythonpath) = extend_pythonpath(root) {
-            command.env("PYTHONPATH", pythonpath);
-        }
     }
 
     let output = timeout(BRIDGE_TIMEOUT, command.output())
@@ -216,19 +212,6 @@ async fn invoke_bridge(
     }
 
     parse_bridge_response(&output.stdout)
-}
-
-fn extend_pythonpath(root: &Path) -> Option<OsString> {
-    let mut paths = vec![root.to_path_buf()];
-    let src_path = root.join("src");
-    if src_path.is_dir() {
-        paths.push(src_path);
-    }
-    if let Some(existing) = std::env::var_os("PYTHONPATH") {
-        paths.extend(std::env::split_paths(&existing));
-    }
-
-    std::env::join_paths(paths).ok()
 }
 
 fn format_process_failure(
