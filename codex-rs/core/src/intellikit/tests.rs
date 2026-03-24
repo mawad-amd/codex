@@ -87,6 +87,30 @@ fn resolve_bridge_config_prefers_script_and_explicit_python() {
     );
 }
 
+#[test]
+#[serial(intellikit_env)]
+fn resolve_bridge_config_uses_explicit_module_when_set() {
+    let _python = EnvVarGuard::set(CODEX_INTELLIKIT_PYTHON_ENV_VAR, OsStr::new("/tmp/python3"));
+    let _script = EnvVarGuard::remove(CODEX_INTELLIKIT_BRIDGE_SCRIPT_ENV_VAR);
+    let _root = EnvVarGuard::remove(CODEX_INTELLIKIT_ROOT_ENV_VAR);
+    let _module = EnvVarGuard::set(
+        CODEX_INTELLIKIT_BRIDGE_MODULE_ENV_VAR,
+        OsStr::new("custom.intellikit_bridge"),
+    );
+
+    let runtime = IntelliKitRuntime::from_environment();
+    let config = runtime
+        .resolve_bridge_config()
+        .expect("bridge config should resolve");
+
+    assert_eq!(config.python, PathBuf::from("/tmp/python3"));
+    assert_eq!(config.intellikit_root, None);
+    assert_eq!(
+        config.bridge_target,
+        BridgeTarget::Module("custom.intellikit_bridge".to_string())
+    );
+}
+
 #[tokio::test]
 #[serial(intellikit_env)]
 async fn invoke_runs_bridge_script() {
@@ -147,7 +171,7 @@ print(json.dumps({
 
 #[test]
 #[serial(intellikit_env)]
-fn resolve_bridge_config_reports_missing_python() {
+fn resolve_bridge_config_uses_bundled_script_by_default() {
     let _python = EnvVarGuard::set(
         CODEX_INTELLIKIT_PYTHON_ENV_VAR,
         OsStr::new("/path/that/does/not/exist/python3"),
@@ -167,6 +191,18 @@ fn resolve_bridge_config_reports_missing_python() {
     );
     assert_eq!(
         config.bridge_target,
-        BridgeTarget::Module(DEFAULT_BRIDGE_MODULE.to_string())
+        BridgeTarget::Script(default_bridge_script().expect("bundled bridge script should exist"))
     );
+}
+
+#[test]
+fn extend_pythonpath_adds_src_layout_when_present() {
+    let temp = tempdir().expect("tempdir");
+    let src = temp.path().join("src");
+    fs::create_dir(&src).expect("create src dir");
+
+    let pythonpath = extend_pythonpath(temp.path()).expect("pythonpath should resolve");
+    let paths: Vec<_> = std::env::split_paths(&pythonpath).collect();
+
+    assert_eq!(paths, vec![temp.path().to_path_buf(), src]);
 }

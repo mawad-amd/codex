@@ -37,6 +37,18 @@ KNOWN_TOOLS = {
 }
 COMMAND_TIMEOUT_SECONDS = 5
 COMMAND_OUTPUT_LIMIT = 4000
+TOOLKIT_PACKAGES = {
+    "accordo": {"module": "accordo", "entrypoints": ["accordo", "accordo-mcp"]},
+    "kerncap": {"module": "kerncap", "entrypoints": ["kerncap", "kerncap-mcp"]},
+    "linex": {"module": "linex", "entrypoints": ["linex-mcp"]},
+    "metrix": {"module": "metrix", "entrypoints": ["metrix", "metrix-mcp"]},
+    "nexus": {"module": "nexus", "entrypoints": ["nexus-mcp"]},
+    "rocm_mcp": {
+        "module": "rocm_mcp",
+        "entrypoints": ["rocminfo-mcp", "hip-compiler-mcp", "hip-docs-mcp"],
+    },
+    "uprof_mcp": {"module": "uprof_mcp", "entrypoints": ["uprof-profiler-mcp"]},
+}
 
 
 def main() -> int:
@@ -109,7 +121,10 @@ def validate_request(request: Any) -> str | None:
 
 
 def handle_gpu_inventory() -> tuple[str, dict[str, Any]]:
-    intellikit_import = probe_python_module("intellikit")
+    toolkit_components = {
+        name: probe_toolkit_component(name, spec["module"], spec["entrypoints"])
+        for name, spec in TOOLKIT_PACKAGES.items()
+    }
     rocm_import = probe_python_module("rocm")
     command_probes = {
         "rocminfo": probe_command("rocminfo", ["--support"]),
@@ -120,11 +135,16 @@ def handle_gpu_inventory() -> tuple[str, dict[str, Any]]:
     available_commands = sorted(
         name for name, probe in command_probes.items() if probe["available"]
     )
-    import_state = "available" if intellikit_import["available"] else "missing"
+    available_components = sorted(
+        name
+        for name, probe in toolkit_components.items()
+        if probe["module"]["available"]
+        or any(entrypoint["available"] for entrypoint in probe["entrypoints"].values())
+    )
 
     message = (
         "GPU inventory bridge completed. "
-        f"IntelliKit import is {import_state}. "
+        f"Detected IntelliKit components: {', '.join(available_components) if available_components else 'none'}. "
         f"Discovered GPU command-line tools: {', '.join(available_commands) if available_commands else 'none'}."
     )
 
@@ -147,12 +167,25 @@ def handle_gpu_inventory() -> tuple[str, dict[str, Any]]:
             "pythonPath": os.environ.get("PYTHONPATH"),
         },
         "imports": {
-            "intellikit": intellikit_import,
             "rocm": rocm_import,
         },
+        "toolkitComponents": toolkit_components,
         "commands": command_probes,
     }
     return message, data
+
+
+def probe_toolkit_component(
+    component_name: str, module_name: str, entrypoints: list[str]
+) -> dict[str, Any]:
+    del component_name
+    entrypoint_probes = {
+        entrypoint: probe_executable(entrypoint) for entrypoint in entrypoints
+    }
+    return {
+        "module": probe_python_module(module_name),
+        "entrypoints": entrypoint_probes,
+    }
 
 
 def probe_python_module(module_name: str) -> dict[str, Any]:
@@ -176,6 +209,14 @@ def probe_python_module(module_name: str) -> dict[str, Any]:
         "error": None,
         "location": spec.origin,
         "version": version,
+    }
+
+
+def probe_executable(name: str) -> dict[str, Any]:
+    executable = shutil.which(name)
+    return {
+        "available": executable is not None,
+        "path": executable,
     }
 
 

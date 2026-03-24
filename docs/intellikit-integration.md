@@ -15,7 +15,7 @@ This repository now carries native scaffolding for an IntelliKit-backed GPU tool
 - The bridge is environment-driven for now:
   - `CODEX_INTELLIKIT_PYTHON` overrides the Python interpreter.
   - `CODEX_INTELLIKIT_BRIDGE_SCRIPT` points at an explicit Python bridge script.
-  - `CODEX_INTELLIKIT_BRIDGE_MODULE` overrides the default module target (`intellikit.codex_bridge`).
+  - `CODEX_INTELLIKIT_BRIDGE_MODULE` overrides the default bundled bridge script with an importable Python module.
   - `CODEX_INTELLIKIT_ROOT` sets the bridge working directory and is prepended to `PYTHONPATH`.
 - `gpu_inventory` can execute end-to-end once the Python-side bridge exists on the target system. The other GPU tools use the same bridge contract and can be implemented on the IntelliKit side without changing Codex's tool surface again.
 - This repo now includes a scaffold bridge script at `scripts/intellikit_codex_bridge.py` that you can point Codex at during bring-up.
@@ -53,7 +53,7 @@ export CODEX_INTELLIKIT_BRIDGE_SCRIPT=/path/to/codex/scripts/intellikit_codex_br
 The scaffold script already implements:
 
 - `gpu_inventory`
-  - returns platform, interpreter, importability, and ROCm command discovery data
+  - returns platform, interpreter, IntelliKit subcomponent detection, and ROCm command discovery data
 - `gpu_profile`, `gpu_inspect`, `gpu_validate`
   - return structured "not implemented yet" responses until IntelliKit execution is wired
 
@@ -63,5 +63,7 @@ You can also test the bridge directly before launching Codex:
 python scripts/intellikit_codex_bridge.py \
   --request-json '{"tool":"gpu_inventory","arguments":{}}'
 ```
+
+The current bridge does not assume a top-level `intellikit` Python import. It probes the real installable subpackages and entrypoints from the IntelliKit monorepo such as `rocm_mcp`, `metrix`, `linex`, `nexus`, `kerncap`, `accordo`, and `uprof_mcp`.
 
 The intended follow-up is to replace the placeholder handlers in the Python bridge with real IntelliKit API calls or command wrappers on the GPU machine.

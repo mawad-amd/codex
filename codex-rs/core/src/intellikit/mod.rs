@@ -18,7 +18,7 @@ const CODEX_INTELLIKIT_BRIDGE_MODULE_ENV_VAR: &str = "CODEX_INTELLIKIT_BRIDGE_MO
 const CODEX_INTELLIKIT_BRIDGE_SCRIPT_ENV_VAR: &str = "CODEX_INTELLIKIT_BRIDGE_SCRIPT";
 const CODEX_INTELLIKIT_PYTHON_ENV_VAR: &str = "CODEX_INTELLIKIT_PYTHON";
 const CODEX_INTELLIKIT_ROOT_ENV_VAR: &str = "CODEX_INTELLIKIT_ROOT";
-const DEFAULT_BRIDGE_MODULE: &str = "intellikit.codex_bridge";
+const DEFAULT_BRIDGE_SCRIPT: &str = "scripts/intellikit_codex_bridge.py";
 const BRIDGE_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -143,12 +143,14 @@ impl IntelliKitRuntime {
                 &script,
                 self.intellikit_root.as_deref(),
             ))
-        } else {
-            let module = self
-                .bridge_module
-                .clone()
-                .unwrap_or_else(|| DEFAULT_BRIDGE_MODULE.to_string());
+        } else if let Some(module) = self.bridge_module.clone() {
             BridgeTarget::Module(module)
+        } else if let Some(script) = default_bridge_script() {
+            BridgeTarget::Script(script)
+        } else {
+            return Err(format!(
+                "No IntelliKit bridge target was found. Set {CODEX_INTELLIKIT_BRIDGE_SCRIPT_ENV_VAR} to a bridge script or {CODEX_INTELLIKIT_BRIDGE_MODULE_ENV_VAR} to an importable Python module."
+            ));
         };
 
         Ok(BridgeConfig {
@@ -218,6 +220,10 @@ async fn invoke_bridge(
 
 fn extend_pythonpath(root: &Path) -> Option<OsString> {
     let mut paths = vec![root.to_path_buf()];
+    let src_path = root.join("src");
+    if src_path.is_dir() {
+        paths.push(src_path);
+    }
     if let Some(existing) = std::env::var_os("PYTHONPATH") {
         paths.extend(std::env::split_paths(&existing));
     }
@@ -296,6 +302,13 @@ fn read_trimmed_env(key: &str) -> Option<String> {
     } else {
         Some(trimmed.to_string())
     }
+}
+
+fn default_bridge_script() -> Option<PathBuf> {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../")
+        .join(DEFAULT_BRIDGE_SCRIPT);
+    path.is_file().then_some(path)
 }
 
 fn resolve_script_path(script: &Path, intellikit_root: Option<&Path>) -> PathBuf {
