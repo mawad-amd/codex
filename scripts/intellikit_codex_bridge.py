@@ -40,6 +40,7 @@ COMMAND_TIMEOUT_SECONDS = 5
 COMMAND_OUTPUT_LIMIT = 4000
 PROFILE_TIMEOUT_SECONDS = 300
 PROFILE_KERNEL_LIMIT = 10
+DEFAULT_ARTIFACT_DIR_NAME = "codex-intellikit-artifacts"
 TOOLKIT_PACKAGES = {
     "accordo": {"module": "accordo", "entrypoints": ["accordo", "accordo-mcp"]},
     "kerncap": {"module": "kerncap", "entrypoints": ["kerncap", "kerncap-mcp"]},
@@ -102,16 +103,46 @@ def main() -> int:
             )
         return emit_response(success=True, message=message, data=data)
 
-    if tool in {GPU_INSPECT_TOOL, GPU_VALIDATE_TOOL}:
-        return emit_response(
-            success=False,
-            message=(
-                f"`{tool}` is not implemented in the Python bridge yet. "
-                "The Codex-side integration is ready; implement the IntelliKit "
-                "execution path here on the GPU machine."
-            ),
-            data={"tool": tool, "arguments": arguments},
-        )
+    if tool == GPU_INSPECT_TOOL:
+        error = validate_gpu_inspect_arguments(arguments)
+        if error is not None:
+            return emit_response(
+                success=False,
+                message=error,
+                data={"tool": tool, "arguments": arguments},
+            )
+        try:
+            message, data = handle_gpu_inspect(arguments)
+        except Exception as err:  # pragma: no cover - exercised in GPU environment
+            return emit_response(
+                success=False,
+                message=f"`{tool}` failed: {err}",
+                data={"tool": tool, "arguments": arguments},
+            )
+        return emit_response(success=True, message=message, data=data)
+
+    if tool == GPU_VALIDATE_TOOL:
+        error = validate_gpu_validate_arguments(arguments)
+        if error is not None:
+            return emit_response(
+                success=False,
+                message=error,
+                data={"tool": tool, "arguments": arguments},
+            )
+        try:
+            message, data = handle_gpu_validate(arguments)
+        except Exception as err:  # pragma: no cover - exercised in GPU environment
+            return emit_response(
+                success=False,
+                message=f"`{tool}` failed: {err}",
+                data={
+                    "tool": tool,
+                    "arguments": arguments,
+                    "metrix": probe_python_module("metrix"),
+                    "rocprofv3": probe_command("rocprofv3", ["--version"]),
+                },
+            )
+        return emit_response(success=True, message=message, data=data)
 
     return emit_response(
         success=False,
@@ -152,6 +183,31 @@ def validate_gpu_profile_arguments(arguments: dict[str, Any]) -> str | None:
         return "Request field `arguments.target` must be a non-empty string for `gpu_profile`."
 
     for key in ("workload", "objective"):
+        value = arguments.get(key)
+        if value is not None and not isinstance(value, str):
+            return f"Request field `arguments.{key}` must be a string when provided."
+
+    return None
+
+
+def validate_gpu_inspect_arguments(arguments: dict[str, Any]) -> str | None:
+    focus = arguments.get("focus")
+    if not isinstance(focus, str) or not focus.strip():
+        return "Request field `arguments.focus` must be a non-empty string for `gpu_inspect`."
+
+    artifact_id = arguments.get("artifact_id")
+    if artifact_id is not None and not isinstance(artifact_id, str):
+        return "Request field `arguments.artifact_id` must be a string when provided."
+
+    return None
+
+
+def validate_gpu_validate_arguments(arguments: dict[str, Any]) -> str | None:
+    target = arguments.get("target")
+    if not isinstance(target, str) or not target.strip():
+        return "Request field `arguments.target` must be a non-empty string for `gpu_validate`."
+
+    for key in ("baseline_artifact_id", "expectation"):
         value = arguments.get(key)
         if value is not None and not isinstance(value, str):
             return f"Request field `arguments.{key}` must be a string when provided."
@@ -259,6 +315,23 @@ def handle_gpu_profile(arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
             f"Profiled {results.total_kernels} kernels for `{command}`."
         )
 
+    artifact_payload = build_profile_artifact(
+        command=command,
+        target=target,
+        workload=workload,
+        objective=objective,
+        arch=profiler.arch,
+        available_profiles=profiler.list_profiles(),
+        selected_profile=selected_profile,
+        time_only=time_only,
+        rationale=rationale,
+        timeout_seconds=timeout_seconds,
+        elapsed_seconds=elapsed_seconds,
+        kernels=kernels,
+    )
+    artifact_path = write_profile_artifact(artifact_payload)
+    artifact_id = artifact_path.stem
+
     data = {
         "command": command,
         "target": target,
@@ -276,8 +349,109 @@ def handle_gpu_profile(arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         "kernelCount": results.total_kernels,
         "kernels": [serialize_kernel_results(kernel) for kernel in displayed_kernels],
         "truncatedKernelCount": max(0, len(kernels) - len(displayed_kernels)),
+        "artifact": {
+            "artifactId": artifact_id,
+            "path": str(artifact_path),
+        },
         "metrix": probe_python_module("metrix"),
         "rocprofv3": probe_command("rocprofv3", ["--version"]),
+    }
+    return message, data
+
+
+def handle_gpu_inspect(arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    artifact = load_profile_artifact(arguments.get("artifact_id"))
+    focus = arguments["focus"].strip()
+    matched_kernels = select_inspection_kernels(artifact["kernels"], focus)
+    used_fallback = not matched_kernels
+    displayed_kernels = (
+        artifact["kernels"][:PROFILE_KERNEL_LIMIT] if used_fallback else matched_kernels
+    )
+
+    if used_fallback:
+        message = (
+            f"GPU inspect loaded artifact `{artifact['artifactId']}`, but no kernels matched "
+            f"focus `{focus}` directly, so it returned the hottest kernels instead."
+        )
+    else:
+        message = (
+            f"GPU inspect loaded artifact `{artifact['artifactId']}` and matched "
+            f"{len(matched_kernels)} kernels for focus `{focus}`."
+        )
+    data = {
+        "artifact": {
+            "artifactId": artifact["artifactId"],
+            "path": artifact["path"],
+            "createdAt": artifact["createdAt"],
+            "command": artifact["command"],
+            "arch": artifact["arch"],
+        },
+        "focus": focus,
+        "summary": summarize_focus(
+            artifact,
+            focus,
+            displayed_kernels,
+            len(matched_kernels),
+            used_fallback,
+        ),
+        "kernels": displayed_kernels,
+        "truncatedKernelCount": max(0, len(matched_kernels) - PROFILE_KERNEL_LIMIT),
+    }
+    return message, data
+
+
+def handle_gpu_validate(arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    target = arguments["target"].strip()
+    expectation = arguments.get("expectation")
+    baseline_artifact_id = arguments.get("baseline_artifact_id")
+    selected_profile, time_only, rationale = select_profile_mode(expectation)
+    profile_message, profile_data = handle_gpu_profile(
+        {
+            "target": target,
+            "objective": expectation,
+        }
+    )
+    del profile_message
+
+    baseline_artifact = (
+        load_profile_artifact(baseline_artifact_id) if baseline_artifact_id else None
+    )
+    current_artifact = load_profile_artifact(profile_data["artifact"]["artifactId"])
+    validation = compare_artifacts(
+        baseline_artifact,
+        current_artifact,
+        expectation,
+        selected_profile,
+        time_only,
+        rationale,
+    )
+
+    if baseline_artifact is None:
+        message = (
+            "GPU validate collected a current profile, but no baseline artifact was provided, "
+            "so the result only summarizes the current run."
+        )
+    else:
+        message = (
+            f"GPU validate compared `{current_artifact['artifactId']}` against "
+            f"`{baseline_artifact['artifactId']}`."
+        )
+
+    data = {
+        "target": target,
+        "expectation": expectation,
+        "currentArtifact": {
+            "artifactId": current_artifact["artifactId"],
+            "path": current_artifact["path"],
+        },
+        "baselineArtifact": None
+        if baseline_artifact is None
+        else {
+            "artifactId": baseline_artifact["artifactId"],
+            "path": baseline_artifact["path"],
+        },
+        "validation": validation,
+        "currentProfile": profile_data,
     }
     return message, data
 
@@ -334,6 +508,276 @@ def serialize_statistics(stats: Any) -> dict[str, Any]:
         "max": stats.max,
         "avg": stats.avg,
         "count": stats.count,
+    }
+
+
+def build_profile_artifact(
+    *,
+    command: str,
+    target: str,
+    workload: str | None,
+    objective: str | None,
+    arch: str,
+    available_profiles: list[str],
+    selected_profile: str | None,
+    time_only: bool,
+    rationale: str,
+    timeout_seconds: int,
+    elapsed_seconds: float,
+    kernels: list[Any],
+) -> dict[str, Any]:
+    artifact_id = f"profile-{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
+    return {
+        "artifactId": artifact_id,
+        "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "path": None,
+        "command": command,
+        "target": target,
+        "workload": workload,
+        "objective": objective,
+        "arch": arch,
+        "elapsedSeconds": round(elapsed_seconds, 3),
+        "availableProfiles": available_profiles,
+        "selectedMode": {
+            "profile": selected_profile,
+            "timeOnly": time_only,
+            "reason": rationale,
+            "timeoutSeconds": timeout_seconds,
+        },
+        "kernelCount": len(kernels),
+        "kernels": [serialize_kernel_results(kernel) for kernel in kernels],
+    }
+
+
+def artifact_directory() -> Path:
+    configured = os.environ.get("CODEX_INTELLIKIT_ARTIFACT_DIR")
+    if configured:
+        return Path(configured).expanduser()
+    root = os.environ.get("CODEX_INTELLIKIT_ROOT")
+    if root:
+        return Path(root).expanduser() / DEFAULT_ARTIFACT_DIR_NAME
+    return Path.cwd() / DEFAULT_ARTIFACT_DIR_NAME
+
+
+def write_profile_artifact(payload: dict[str, Any]) -> Path:
+    directory = artifact_directory()
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{payload['artifactId']}.json"
+    payload["path"] = str(path)
+    path.write_text(json.dumps(payload, indent=2))
+    return path
+
+
+def load_profile_artifact(artifact_id: str | None) -> dict[str, Any]:
+    directory = artifact_directory()
+    if artifact_id is None or not artifact_id.strip():
+        candidates = sorted(directory.glob("profile-*.json"))
+        if not candidates:
+            raise RuntimeError(
+                f"No profiling artifacts were found in `{directory}` for `gpu_inspect`."
+            )
+        path = candidates[-1]
+    else:
+        path = directory / f"{artifact_id.strip()}.json"
+        if not path.is_file():
+            raise RuntimeError(f"Profiling artifact `{artifact_id}` was not found at `{path}`.")
+
+    payload = json.loads(path.read_text())
+    payload["path"] = str(path)
+    return payload
+
+
+def select_inspection_kernels(
+    kernels: list[dict[str, Any]], focus: str
+) -> list[dict[str, Any]]:
+    normalized = focus.lower()
+    matched = []
+    for kernel in kernels:
+        if normalized in kernel["name"].lower():
+            matched.append(kernel)
+            continue
+        metric_names = " ".join(kernel["metrics"].keys()).lower()
+        if normalized in metric_names:
+            matched.append(kernel)
+            continue
+        if normalized in {"latency", "duration", "time"}:
+            matched.append(kernel)
+            continue
+        if normalized in {"memory", "bandwidth", "cache", "compute"} and any(
+            normalized in metric_name.lower() for metric_name in kernel["metrics"].keys()
+        ):
+            matched.append(kernel)
+    return matched
+
+
+def summarize_focus(
+    artifact: dict[str, Any],
+    focus: str,
+    displayed_kernels: list[dict[str, Any]],
+    matched_kernel_count: int,
+    used_fallback: bool,
+) -> dict[str, Any]:
+    top_kernel = displayed_kernels[0] if displayed_kernels else None
+    return {
+        "artifactId": artifact["artifactId"],
+        "focus": focus,
+        "usedFallback": used_fallback,
+        "matchedKernelCount": matched_kernel_count,
+        "displayedKernelCount": len(displayed_kernels),
+        "topKernel": None if top_kernel is None else top_kernel["name"],
+        "topKernelDurationUs": None
+        if top_kernel is None
+        else top_kernel["durationUs"]["avg"],
+    }
+
+
+def compare_artifacts(
+    baseline_artifact: dict[str, Any] | None,
+    current_artifact: dict[str, Any],
+    expectation: str | None,
+    selected_profile: str | None,
+    time_only: bool,
+    rationale: str,
+) -> dict[str, Any]:
+    if baseline_artifact is None:
+        return {
+            "mode": {
+                "profile": selected_profile,
+                "timeOnly": time_only,
+                "reason": rationale,
+            },
+            "status": "no_baseline",
+            "summary": "No baseline artifact was provided.",
+            "topKernel": current_artifact["kernels"][0] if current_artifact["kernels"] else None,
+        }
+
+    baseline_by_name = {kernel["name"]: kernel for kernel in baseline_artifact["kernels"]}
+    current_by_name = {kernel["name"]: kernel for kernel in current_artifact["kernels"]}
+    kernel_name = next(
+        (
+            kernel["name"]
+            for kernel in current_artifact["kernels"]
+            if kernel["name"] in baseline_by_name
+        ),
+        current_artifact["kernels"][0]["name"] if current_artifact["kernels"] else None,
+    )
+
+    if kernel_name is None:
+        return {
+            "mode": {
+                "profile": selected_profile,
+                "timeOnly": time_only,
+                "reason": rationale,
+            },
+            "status": "no_kernels",
+            "summary": "Neither artifact contained kernels to compare.",
+        }
+
+    baseline_kernel = baseline_by_name.get(kernel_name)
+    current_kernel = current_by_name.get(kernel_name)
+    duration_delta = compute_delta(
+        baseline_kernel["durationUs"]["avg"] if baseline_kernel else None,
+        current_kernel["durationUs"]["avg"] if current_kernel else None,
+    )
+    metric_name = select_validation_metric(expectation, current_kernel, baseline_kernel)
+    metric_delta = None
+    if metric_name and baseline_kernel and current_kernel:
+        metric_delta = compute_delta(
+            baseline_kernel["metrics"].get(metric_name, {}).get("avg"),
+            current_kernel["metrics"].get(metric_name, {}).get("avg"),
+        )
+    evaluation = evaluate_expectation(expectation, duration_delta, metric_name, metric_delta)
+    return {
+        "mode": {
+            "profile": selected_profile,
+            "timeOnly": time_only,
+            "reason": rationale,
+        },
+        "status": evaluation["status"],
+        "summary": evaluation["summary"],
+        "kernel": kernel_name,
+        "durationDelta": duration_delta,
+        "metric": metric_name,
+        "metricDelta": metric_delta,
+    }
+
+
+def select_validation_metric(
+    expectation: str | None,
+    current_kernel: dict[str, Any] | None,
+    baseline_kernel: dict[str, Any] | None,
+) -> str | None:
+    del baseline_kernel
+    if current_kernel is None:
+        return None
+
+    normalized = "" if expectation is None else expectation.lower()
+    if "bandwidth" in normalized:
+        return "memory.hbm_bandwidth_utilization"
+    if "cache" in normalized:
+        return "memory.l2_hit_rate"
+    if any(keyword in normalized for keyword in ("compute", "throughput", "flop")):
+        for name in ("compute.hbm_gflops", "compute.total_flops"):
+            if name in current_kernel["metrics"]:
+                return name
+    return None
+
+
+def compute_delta(baseline: float | None, current: float | None) -> dict[str, Any] | None:
+    if baseline is None or current is None:
+        return None
+    delta = current - baseline
+    percent = None if baseline == 0 else (delta / baseline) * 100.0
+    return {
+        "baseline": baseline,
+        "current": current,
+        "absolute": delta,
+        "percent": percent,
+    }
+
+
+def evaluate_expectation(
+    expectation: str | None,
+    duration_delta: dict[str, Any] | None,
+    metric_name: str | None,
+    metric_delta: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if expectation is None or not expectation.strip():
+        return {
+            "status": "informational",
+            "summary": "Collected a current profile and compared it to the baseline artifact.",
+        }
+
+    normalized = expectation.lower()
+    if any(keyword in normalized for keyword in ("faster", "lower latency", "improve")):
+        passed = duration_delta is not None and duration_delta["absolute"] < 0
+        return {
+            "status": "passed" if passed else "failed",
+            "summary": "Expectation targeted lower runtime latency."
+            if passed
+            else "Expected lower runtime latency, but the current run was not faster.",
+        }
+    if any(keyword in normalized for keyword in ("regression", "slower", "higher latency")):
+        passed = duration_delta is not None and duration_delta["absolute"] > 0
+        return {
+            "status": "passed" if passed else "failed",
+            "summary": "Expectation targeted a runtime regression signal."
+            if passed
+            else "Expected a runtime regression signal, but the current run was not slower.",
+        }
+    if metric_name and metric_delta is not None:
+        expects_higher = any(
+            keyword in normalized for keyword in ("higher", "more", "better", "increase")
+        )
+        passed = metric_delta["absolute"] > 0 if expects_higher else metric_delta["absolute"] < 0
+        direction = "higher" if expects_higher else "lower"
+        return {
+            "status": "passed" if passed else "failed",
+            "summary": f"Expectation targeted {direction} `{metric_name}`.",
+        }
+    return {
+        "status": "informational",
+        "summary": f"Could not map expectation `{expectation}` onto a strict pass/fail rule.",
     }
 
 

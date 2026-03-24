@@ -17,7 +17,7 @@ This repository now carries native scaffolding for an IntelliKit-backed GPU tool
   - `CODEX_INTELLIKIT_BRIDGE_SCRIPT` points at an explicit Python bridge script.
   - `CODEX_INTELLIKIT_BRIDGE_MODULE` overrides the default bundled bridge script with an importable Python module.
   - `CODEX_INTELLIKIT_ROOT` only sets the bridge working directory and resolves relative script paths. It does not modify Python import paths.
-- `gpu_inventory` can execute end-to-end once the Python-side bridge exists on the target system. The other GPU tools use the same bridge contract and can be implemented on the IntelliKit side without changing Codex's tool surface again.
+- `gpu_inventory`, `gpu_profile`, `gpu_inspect`, and `gpu_validate` all execute end-to-end through the same Python-side bridge contract.
 - This repo now includes a scaffold bridge script at `scripts/intellikit_codex_bridge.py` that you can point Codex at during bring-up.
 
 ## Immediate Goal
@@ -51,15 +51,23 @@ export CODEX_INTELLIKIT_BRIDGE_SCRIPT=/path/to/codex/scripts/intellikit_codex_br
 
 If you use `CODEX_INTELLIKIT_ROOT`, treat it as a working directory only. IntelliKit packages must already be installed into the selected Python environment and discoverable by that interpreter without Codex patching `PYTHONPATH`.
 
-The scaffold script already implements:
+The bridge script already implements:
 
 - `gpu_inventory`
   - returns platform, interpreter, IntelliKit subcomponent detection, and ROCm command discovery data
 - `gpu_profile`
   - runs a real Metrix profiling step for the requested target and maps `objective` onto Metrix profiles such as `quick`, `memory`, `memory_bandwidth`, `memory_cache`, `compute`, or timing-only collection
   - requires the IntelliKit `metrix` package and its runtime dependencies to already be installed in the selected Python environment
-- `gpu_inspect`, `gpu_validate`
-  - return structured "not implemented yet" responses until IntelliKit execution is wired
+- `gpu_inspect`
+  - loads a saved profiling artifact by `artifact_id` or falls back to the newest saved run
+  - filters kernels by `focus` across kernel names and collected metric names
+  - returns the hottest kernels when no direct match exists, while marking that fallback in the summary
+- `gpu_validate`
+  - reruns a current profile for `target`
+  - optionally compares the new run against `baseline_artifact_id`
+  - maps `expectation` onto a Metrix mode and, when possible, into a strict pass/fail comparison for runtime or key metrics
+
+Each `gpu_profile` run now persists a JSON artifact under `CODEX_INTELLIKIT_ARTIFACT_DIR` when set, otherwise under `CODEX_INTELLIKIT_ROOT/codex-intellikit-artifacts` or the current working directory. `gpu_inspect` and `gpu_validate` consume those persisted artifacts directly.
 
 You can also test the bridge directly before launching Codex:
 
@@ -70,4 +78,4 @@ python scripts/intellikit_codex_bridge.py \
 
 The current bridge does not assume a top-level `intellikit` Python import. It probes the real installable subpackages and entrypoints from the IntelliKit monorepo such as `rocm_mcp`, `metrix`, `linex`, `nexus`, `kerncap`, `accordo`, and `uprof_mcp`.
 
-The intended follow-up is to replace the placeholder handlers in the Python bridge with real IntelliKit API calls or command wrappers on the GPU machine.
+This is intentionally still a bridge layer, not a final integrated Python SDK surface. The remaining follow-up is to harden the artifact schema, add richer focus/validation semantics, and validate the flow in the target GPU runtime environment where IntelliKit packages and ROCm tooling are fully installed.
