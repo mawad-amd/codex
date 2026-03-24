@@ -403,6 +403,21 @@ async fn apps_feature_does_not_append_to_project_doc_user_instructions() {
     assert_eq!(res, "base doc");
 }
 
+#[tokio::test]
+async fn intellikit_instructions_are_appended_when_enabled() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let mut cfg = make_config(&tmp, 4096, None).await;
+    cfg.features
+        .enable(Feature::IntelliKit)
+        .expect("test config should allow intellikit");
+
+    let res = get_user_instructions(&cfg)
+        .await
+        .expect("intellikit instructions expected");
+    let expected = "## IntelliKit GPU Tools\n- Prefer the native GPU tools for AMD GPU profiling, inspection, and validation work.\n- Start with `gpu_inventory` to understand the local GPU environment before proposing a profiling plan.\n- Use `gpu_profile` to collect or plan a profiling run, `gpu_inspect` to drill into a capture or dispatch, and `gpu_validate` to confirm an optimization or regression hypothesis.\n- Treat these tools as the primary GPU workflow; only fall back to shell commands for project-specific glue or when the IntelliKit runtime is unavailable.\n- The current integration may report that the execution bridge is not configured yet. When that happens, explain the missing runtime briefly and continue with non-GPU-local analysis if possible.";
+    assert_eq!(res, expected);
+}
+
 fn create_skill(codex_home: PathBuf, name: &str, description: &str) {
     let skill_dir = codex_home.join(format!("skills/{name}"));
     fs::create_dir_all(&skill_dir).unwrap();

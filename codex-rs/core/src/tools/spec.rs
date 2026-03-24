@@ -3,6 +3,10 @@ use crate::client_common::tools::FreeformToolFormat;
 use crate::client_common::tools::ResponsesApiTool;
 use crate::client_common::tools::ToolSpec;
 use crate::config::AgentRoleConfig;
+use crate::intellikit::GPU_INSPECT_TOOL_NAME;
+use crate::intellikit::GPU_INVENTORY_TOOL_NAME;
+use crate::intellikit::GPU_PROFILE_TOOL_NAME;
+use crate::intellikit::GPU_VALIDATE_TOOL_NAME;
 use crate::mcp::CODEX_APPS_MCP_SERVER_NAME;
 use crate::mcp_connection_manager::ToolInfo;
 use crate::models_manager::collaboration_mode_presets::CollaborationModesConfig;
@@ -274,6 +278,7 @@ pub(crate) struct ToolsConfig {
     pub agent_roles: BTreeMap<String, AgentRoleConfig>,
     pub search_tool: bool,
     pub tool_suggest: bool,
+    pub intellikit_tools: bool,
     pub exec_permission_approvals_enabled: bool,
     pub request_permissions_tool_enabled: bool,
     pub code_mode_enabled: bool,
@@ -339,6 +344,7 @@ impl ToolsConfig {
             include_request_user_input && features.enabled(Feature::DefaultModeRequestUserInput);
         let include_search_tool = model_info.supports_search_tool;
         let include_tool_suggest = include_search_tool && features.enabled(Feature::ToolSuggest);
+        let include_intellikit_tools = features.enabled(Feature::IntelliKit);
         let include_original_image_detail = can_request_original_image_detail(features, model_info);
         let include_artifact_tools =
             features.enabled(Feature::Artifact) && codex_artifacts::can_manage_artifact_runtime();
@@ -408,6 +414,7 @@ impl ToolsConfig {
             agent_roles: BTreeMap::new(),
             search_tool: include_search_tool,
             tool_suggest: include_tool_suggest,
+            intellikit_tools: include_intellikit_tools,
             exec_permission_approvals_enabled,
             request_permissions_tool_enabled,
             code_mode_enabled: include_code_mode,
@@ -1721,6 +1728,131 @@ fn create_grep_files_tool() -> ToolSpec {
     })
 }
 
+fn create_intellikit_tool(
+    name: &str,
+    description: &str,
+    properties: BTreeMap<String, JsonSchema>,
+    required: Option<Vec<String>>,
+) -> ToolSpec {
+    ToolSpec::Function(ResponsesApiTool {
+        name: name.to_string(),
+        description: description.to_string(),
+        strict: false,
+        defer_loading: None,
+        parameters: JsonSchema::Object {
+            properties,
+            required,
+            additional_properties: Some(false.into()),
+        },
+        output_schema: None,
+    })
+}
+
+fn create_gpu_inventory_tool() -> ToolSpec {
+    create_intellikit_tool(
+        GPU_INVENTORY_TOOL_NAME,
+        "Inspect the local AMD GPU environment and summarize what IntelliKit can target.",
+        BTreeMap::new(),
+        /*required*/ None,
+    )
+}
+
+fn create_gpu_profile_tool() -> ToolSpec {
+    create_intellikit_tool(
+        GPU_PROFILE_TOOL_NAME,
+        "Plan or run a GPU profiling step for a target workload using the IntelliKit workflow.",
+        BTreeMap::from([
+            (
+                "target".to_string(),
+                JsonSchema::String {
+                    description: Some(
+                        "Binary, benchmark, test, or kernel target to profile.".to_string(),
+                    ),
+                },
+            ),
+            (
+                "workload".to_string(),
+                JsonSchema::String {
+                    description: Some(
+                        "Optional workload selector, scenario, or command variant.".to_string(),
+                    ),
+                },
+            ),
+            (
+                "objective".to_string(),
+                JsonSchema::String {
+                    description: Some(
+                        "Optional profiling objective such as occupancy, memory bandwidth, or dispatch latency.".to_string(),
+                    ),
+                },
+            ),
+        ]),
+        Some(vec!["target".to_string()]),
+    )
+}
+
+fn create_gpu_inspect_tool() -> ToolSpec {
+    create_intellikit_tool(
+        GPU_INSPECT_TOOL_NAME,
+        "Inspect an existing GPU profiling artifact or drill into a specific dispatch focus area.",
+        BTreeMap::from([
+            (
+                "artifact_id".to_string(),
+                JsonSchema::String {
+                    description: Some(
+                        "Optional profiling artifact, capture, or run identifier to inspect."
+                            .to_string(),
+                    ),
+                },
+            ),
+            (
+                "focus".to_string(),
+                JsonSchema::String {
+                    description: Some(
+                        "Inspection focus such as a kernel name, dispatch id, source line, or bottleneck class.".to_string(),
+                    ),
+                },
+            ),
+        ]),
+        Some(vec!["focus".to_string()]),
+    )
+}
+
+fn create_gpu_validate_tool() -> ToolSpec {
+    create_intellikit_tool(
+        GPU_VALIDATE_TOOL_NAME,
+        "Validate a GPU optimization or regression hypothesis against the current workload context.",
+        BTreeMap::from([
+            (
+                "target".to_string(),
+                JsonSchema::String {
+                    description: Some(
+                        "Binary, benchmark, test, or kernel target to validate.".to_string(),
+                    ),
+                },
+            ),
+            (
+                "baseline_artifact_id".to_string(),
+                JsonSchema::String {
+                    description: Some(
+                        "Optional baseline profiling artifact or prior run identifier.".to_string(),
+                    ),
+                },
+            ),
+            (
+                "expectation".to_string(),
+                JsonSchema::String {
+                    description: Some(
+                        "Optional statement of the expected improvement or regression signal."
+                            .to_string(),
+                    ),
+                },
+            ),
+        ]),
+        Some(vec!["target".to_string()]),
+    )
+}
+
 fn create_tool_search_tool(app_tools: &HashMap<String, ToolInfo>) -> ToolSpec {
     let properties = BTreeMap::from([
         (
@@ -2581,6 +2713,7 @@ pub(crate) fn build_specs_with_discoverable_tools(
     use crate::tools::handlers::CodeModeWaitHandler;
     use crate::tools::handlers::DynamicToolHandler;
     use crate::tools::handlers::GrepFilesHandler;
+    use crate::tools::handlers::IntelliKitHandler;
     use crate::tools::handlers::JsReplHandler;
     use crate::tools::handlers::JsReplResetHandler;
     use crate::tools::handlers::ListDirHandler;
@@ -2627,6 +2760,7 @@ pub(crate) fn build_specs_with_discoverable_tools(
     let code_mode_wait_handler = Arc::new(CodeModeWaitHandler);
     let js_repl_handler = Arc::new(JsReplHandler);
     let js_repl_reset_handler = Arc::new(JsReplResetHandler);
+    let intellikit_handler = Arc::new(IntelliKitHandler);
     let artifacts_handler = Arc::new(ArtifactsHandler);
     let exec_permission_approvals_enabled = config.exec_permission_approvals_enabled;
 
@@ -2800,6 +2934,37 @@ pub(crate) fn build_specs_with_discoverable_tools(
             config.code_mode_enabled,
         );
         builder.register_handler("request_permissions", request_permissions_handler);
+    }
+
+    if config.intellikit_tools {
+        push_tool_spec(
+            &mut builder,
+            create_gpu_inventory_tool(),
+            /*supports_parallel_tool_calls*/ false,
+            config.code_mode_enabled,
+        );
+        push_tool_spec(
+            &mut builder,
+            create_gpu_profile_tool(),
+            /*supports_parallel_tool_calls*/ false,
+            config.code_mode_enabled,
+        );
+        push_tool_spec(
+            &mut builder,
+            create_gpu_inspect_tool(),
+            /*supports_parallel_tool_calls*/ false,
+            config.code_mode_enabled,
+        );
+        push_tool_spec(
+            &mut builder,
+            create_gpu_validate_tool(),
+            /*supports_parallel_tool_calls*/ false,
+            config.code_mode_enabled,
+        );
+        builder.register_handler(GPU_INVENTORY_TOOL_NAME, intellikit_handler.clone());
+        builder.register_handler(GPU_PROFILE_TOOL_NAME, intellikit_handler.clone());
+        builder.register_handler(GPU_INSPECT_TOOL_NAME, intellikit_handler.clone());
+        builder.register_handler(GPU_VALIDATE_TOOL_NAME, intellikit_handler);
     }
 
     if config.search_tool

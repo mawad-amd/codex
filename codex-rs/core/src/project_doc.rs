@@ -74,6 +74,31 @@ fn render_js_repl_instructions(config: &Config) -> Option<String> {
     Some(section)
 }
 
+fn render_intellikit_instructions(config: &Config) -> Option<String> {
+    if !config.features.enabled(Feature::IntelliKit) {
+        return None;
+    }
+
+    let mut section = String::from("## IntelliKit GPU Tools\n");
+    section.push_str(
+        "- Prefer the native GPU tools for AMD GPU profiling, inspection, and validation work.\n",
+    );
+    section.push_str(
+        "- Start with `gpu_inventory` to understand the local GPU environment before proposing a profiling plan.\n",
+    );
+    section.push_str(
+        "- Use `gpu_profile` to collect or plan a profiling run, `gpu_inspect` to drill into a capture or dispatch, and `gpu_validate` to confirm an optimization or regression hypothesis.\n",
+    );
+    section.push_str(
+        "- Treat these tools as the primary GPU workflow; only fall back to shell commands for project-specific glue or when the IntelliKit runtime is unavailable.\n",
+    );
+    section.push_str(
+        "- The current integration may report that the execution bridge is not configured yet. When that happens, explain the missing runtime briefly and continue with non-GPU-local analysis if possible.",
+    );
+
+    Some(section)
+}
+
 /// Combines `Config::instructions` and `AGENTS.md` (if present) into a single
 /// string of instructions.
 pub(crate) async fn get_user_instructions(config: &Config) -> Option<String> {
@@ -103,6 +128,13 @@ pub(crate) async fn get_user_instructions(config: &Config) -> Option<String> {
             output.push_str("\n\n");
         }
         output.push_str(&js_repl_section);
+    }
+
+    if let Some(intellikit_section) = render_intellikit_instructions(config) {
+        if !output.is_empty() {
+            output.push_str("\n\n");
+        }
+        output.push_str(&intellikit_section);
     }
 
     if config.features.enabled(Feature::ChildAgentsMd) {

@@ -941,6 +941,64 @@ fn js_repl_enabled_adds_tools() {
 }
 
 #[test]
+fn intellikit_requires_feature_flag() {
+    let config = test_config();
+    let model_info = ModelsManager::construct_model_info_offline_for_tests("gpt-5-codex", &config);
+    let features = Features::with_defaults();
+
+    let available_models = Vec::new();
+    let tools_config = ToolsConfig::new(&ToolsConfigParams {
+        model_info: &model_info,
+        available_models: &available_models,
+        features: &features,
+        web_search_mode: Some(WebSearchMode::Cached),
+        session_source: SessionSource::Cli,
+        sandbox_policy: &SandboxPolicy::DangerFullAccess,
+        windows_sandbox_level: WindowsSandboxLevel::Disabled,
+    });
+    let (tools, _) = build_specs(&tools_config, None, None, &[]).build();
+
+    assert_lacks_tool_name(&tools, GPU_INVENTORY_TOOL_NAME);
+    assert_lacks_tool_name(&tools, GPU_PROFILE_TOOL_NAME);
+    assert_lacks_tool_name(&tools, GPU_INSPECT_TOOL_NAME);
+    assert_lacks_tool_name(&tools, GPU_VALIDATE_TOOL_NAME);
+}
+
+#[test]
+fn intellikit_enabled_adds_gpu_tools() {
+    let config = test_config();
+    let model_info = ModelsManager::construct_model_info_offline_for_tests("gpt-5-codex", &config);
+    let mut features = Features::with_defaults();
+    features.enable(Feature::IntelliKit);
+
+    let available_models = Vec::new();
+    let tools_config = ToolsConfig::new(&ToolsConfigParams {
+        model_info: &model_info,
+        available_models: &available_models,
+        features: &features,
+        web_search_mode: Some(WebSearchMode::Cached),
+        session_source: SessionSource::Cli,
+        sandbox_policy: &SandboxPolicy::DangerFullAccess,
+        windows_sandbox_level: WindowsSandboxLevel::Disabled,
+    });
+    let (tools, _) = build_specs(&tools_config, None, None, &[]).build();
+
+    assert_contains_tool_names(
+        &tools,
+        &[
+            GPU_INVENTORY_TOOL_NAME,
+            GPU_PROFILE_TOOL_NAME,
+            GPU_INSPECT_TOOL_NAME,
+            GPU_VALIDATE_TOOL_NAME,
+        ],
+    );
+    assert_eq!(
+        find_tool(&tools, GPU_INVENTORY_TOOL_NAME).spec,
+        create_gpu_inventory_tool()
+    );
+}
+
+#[test]
 fn image_generation_tools_require_feature_and_supported_model() {
     let config = test_config();
     let mut supported_model_info =

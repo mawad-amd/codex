@@ -121,6 +121,12 @@ fn tool_suggest_is_under_development() {
 }
 
 #[test]
+fn intellikit_is_under_development() {
+    assert_eq!(Feature::IntelliKit.stage(), Stage::UnderDevelopment);
+    assert_eq!(Feature::IntelliKit.default_enabled(), false);
+}
+
+#[test]
 fn use_linux_sandbox_bwrap_is_a_removed_feature_key() {
     assert_eq!(
         feature_for_key("use_legacy_landlock"),

@@ -45,6 +45,7 @@ pub mod git_info;
 mod guardian;
 mod hook_runtime;
 pub mod instructions;
+mod intellikit;
 pub mod landlock;
 pub mod mcp;
 mod mcp_connection_manager;
