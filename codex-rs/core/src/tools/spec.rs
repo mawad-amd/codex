@@ -1763,10 +1763,10 @@ fn create_gpu_profile_tool() -> ToolSpec {
         "Plan or run a GPU profiling step for a target workload using the IntelliKit workflow.",
         BTreeMap::from([
             (
-                "target".to_string(),
+                "command".to_string(),
                 JsonSchema::String {
                     description: Some(
-                        "Binary, benchmark, test, or kernel target to profile.".to_string(),
+                        "Shell command to execute for profiling (e.g., 'python3 script.py', './my_app --size 1024').".to_string(),
                     ),
                 },
             ),
@@ -1787,7 +1787,7 @@ fn create_gpu_profile_tool() -> ToolSpec {
                 },
             ),
         ]),
-        Some(vec!["target".to_string()]),
+        Some(vec!["command".to_string()]),
     )
 }
 
@@ -1824,10 +1824,10 @@ fn create_gpu_validate_tool() -> ToolSpec {
         "Validate a GPU optimization or regression hypothesis against the current workload context.",
         BTreeMap::from([
             (
-                "target".to_string(),
+                "command".to_string(),
                 JsonSchema::String {
                     description: Some(
-                        "Binary, benchmark, test, or kernel target to validate.".to_string(),
+                        "Shell command to execute for validation (e.g., 'python3 script.py', './my_app --size 1024').".to_string(),
                     ),
                 },
             ),
@@ -1849,7 +1849,7 @@ fn create_gpu_validate_tool() -> ToolSpec {
                 },
             ),
         ]),
-        Some(vec!["target".to_string()]),
+        Some(vec!["command".to_string()]),
     )
 }
 

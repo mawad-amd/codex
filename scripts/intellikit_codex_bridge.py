@@ -180,7 +180,7 @@ def validate_request(request: Any) -> str | None:
 
 
 def validate_gpu_profile_arguments(arguments: dict[str, Any]) -> str | None:
-    target = arguments.get("target")
+    target = arguments.get("command")
     if not isinstance(target, str) or not target.strip():
         return "Request field `arguments.target` must be a non-empty string for `gpu_profile`."
 
@@ -205,7 +205,7 @@ def validate_gpu_inspect_arguments(arguments: dict[str, Any]) -> str | None:
 
 
 def validate_gpu_validate_arguments(arguments: dict[str, Any]) -> str | None:
-    target = arguments.get("target")
+    target = arguments.get("command")
     if not isinstance(target, str) or not target.strip():
         return "Request field `arguments.target` must be a non-empty string for `gpu_validate`."
 
@@ -282,7 +282,7 @@ def handle_gpu_profile(arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
             f"Original error: {err}"
         ) from err
 
-    target = arguments["target"].strip()
+    target = arguments["command"].strip()
     workload = arguments.get("workload")
     objective = arguments.get("objective")
     command = build_profile_command(target, workload)
@@ -444,7 +444,7 @@ def handle_gpu_inspect(arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
 
 
 def handle_gpu_validate(arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
-    target = arguments["target"].strip()
+    target = arguments["command"].strip()
     expectation = arguments.get("expectation")
     baseline_artifact_id = arguments.get("baseline_artifact_id")
     selected_profile, time_only, rationale = select_profile_mode(expectation)
