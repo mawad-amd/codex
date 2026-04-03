@@ -21,7 +21,7 @@ struct GpuInventoryArgs {}
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GpuProfileArgs {
-    target: String,
+    command: String,
     #[serde(default)]
     workload: Option<String>,
     #[serde(default)]
@@ -39,7 +39,7 @@ struct GpuInspectArgs {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GpuValidateArgs {
-    target: String,
+    command: String,
     #[serde(default)]
     baseline_artifact_id: Option<String>,
     #[serde(default)]
@@ -103,12 +103,12 @@ fn validate_arguments(tool: IntelliKitTool, arguments: &Value) -> Result<(), Fun
         }
         IntelliKitTool::Profile => {
             let GpuProfileArgs {
-                target,
+                command,
                 workload,
                 objective,
             } = serde_json::from_value::<GpuProfileArgs>(arguments.clone())
                 .map_err(invalid_arguments)?;
-            let _ = (target, workload, objective);
+            let _ = (command, workload, objective);
         }
         IntelliKitTool::Inspect => {
             let GpuInspectArgs { artifact_id, focus } =
@@ -118,12 +118,12 @@ fn validate_arguments(tool: IntelliKitTool, arguments: &Value) -> Result<(), Fun
         }
         IntelliKitTool::Validate => {
             let GpuValidateArgs {
-                target,
+                command,
                 baseline_artifact_id,
                 expectation,
             } = serde_json::from_value::<GpuValidateArgs>(arguments.clone())
                 .map_err(invalid_arguments)?;
-            let _ = (target, baseline_artifact_id, expectation);
+            let _ = (command, baseline_artifact_id, expectation);
         }
     }
 
