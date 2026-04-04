@@ -4,9 +4,7 @@ use serde_json::Value;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::time::Duration;
 use tokio::process::Command;
-use tokio::time::timeout;
 
 pub(crate) const GPU_INSPECT_TOOL_NAME: &str = "gpu_inspect";
 pub(crate) const GPU_INVENTORY_TOOL_NAME: &str = "gpu_inventory";
@@ -19,7 +17,6 @@ const CODEX_INTELLIKIT_BRIDGE_SCRIPT_ENV_VAR: &str = "CODEX_INTELLIKIT_BRIDGE_SC
 const CODEX_INTELLIKIT_PYTHON_ENV_VAR: &str = "CODEX_INTELLIKIT_PYTHON";
 const CODEX_INTELLIKIT_ROOT_ENV_VAR: &str = "CODEX_INTELLIKIT_ROOT";
 const DEFAULT_BRIDGE_SCRIPT: &str = "scripts/intellikit_codex_bridge.py";
-const BRIDGE_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub(crate) enum IntelliKitTool {
@@ -195,15 +192,9 @@ async fn invoke_bridge(
         command.current_dir(root);
     }
 
-    let output = timeout(BRIDGE_TIMEOUT, command.output())
+    let output = command
+        .output()
         .await
-        .map_err(|_| {
-            format!(
-                "IntelliKit bridge timed out after {} seconds while running `{}`.",
-                BRIDGE_TIMEOUT.as_secs(),
-                request.tool.as_str()
-            )
-        })?
         .map_err(|err| format!("failed to launch IntelliKit bridge: {err}"))?;
 
     if !output.status.success() {
