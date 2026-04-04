@@ -81,22 +81,13 @@ fn render_intellikit_instructions(config: &Config) -> Option<String> {
 
     let mut section = String::from("## IntelliKit GPU Tools\n");
     section.push_str(
-        "- Prefer the native GPU tools for AMD GPU profiling, inspection, and validation work.\n",
+        "- Use `gpu_profile` to profile a GPU workload and `gpu_inspect` to view the results.\n",
     );
     section.push_str(
-        "- Start with `gpu_inventory` to understand the local GPU environment before proposing a profiling plan.\n",
+        "- Use `gpu_list_metrics` to discover available metric names.\n",
     );
     section.push_str(
-        "- Use `gpu_list_metrics` to discover available metric names before profiling.\n",
-    );
-    section.push_str(
-        "- Use `gpu_profile` to collect or plan a profiling run, `gpu_inspect` to drill into a capture or dispatch, and `gpu_validate` to confirm an optimization or regression hypothesis.\n",
-    );
-    section.push_str(
-        "- Treat these tools as the primary GPU workflow; only fall back to shell commands for project-specific glue or when the IntelliKit runtime is unavailable.\n",
-    );
-    section.push_str(
-        "- The current integration may report that the execution bridge is not configured yet. When that happens, explain the missing runtime briefly and continue with non-GPU-local analysis if possible.",
+        "- Use `gpu_validate` to compare a run against a baseline.\n",
     );
 
     Some(section)
