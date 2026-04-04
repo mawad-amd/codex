@@ -262,28 +262,8 @@ def handle_gpu_inventory() -> tuple[str, dict[str, Any]]:
     )
 
     data = {
-        "bridge": {
-            "cwd": os.getcwd(),
-            "pythonExecutable": sys.executable,
-            "scriptPath": str(Path(__file__).resolve()),
-        },
-        "platform": {
-            "machine": platform.machine(),
-            "node": platform.node(),
-            "pythonVersion": platform.python_version(),
-            "release": platform.release(),
-            "system": platform.system(),
-        },
-        "environment": {
-            "codexIntelliKitPython": os.environ.get("CODEX_INTELLIKIT_PYTHON"),
-            "codexIntelliKitRoot": os.environ.get("CODEX_INTELLIKIT_ROOT"),
-            "pythonPath": os.environ.get("PYTHONPATH"),
-        },
-        "imports": {
-            "rocm": rocm_import,
-        },
-        "toolkitComponents": toolkit_components,
-        "commands": command_probes,
+        "availableComponents": available_components,
+        "availableCommands": available_commands,
     }
     return message, data
 
@@ -392,19 +372,7 @@ def handle_gpu_profile(arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     artifact_id = artifact_path.stem
 
     data = {
-        "command": command,
-        "target": target,
-        "workload": workload,
-        "objective": objective,
         "arch": profiler.arch,
-        "elapsedSeconds": round(elapsed_seconds, 3),
-        "availableProfiles": available_profiles,
-        "selectedMode": {
-            "profile": selected_profile,
-            "timeOnly": time_only,
-            "reason": rationale,
-            "timeoutSeconds": timeout_seconds,
-        },
         "kernelCount": results.total_kernels,
         "kernels": [serialize_kernel_results(kernel) for kernel in displayed_kernels],
         "truncatedKernelCount": max(0, len(kernels) - len(displayed_kernels)),
@@ -412,12 +380,6 @@ def handle_gpu_profile(arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
             "artifactId": artifact_id,
             "path": str(artifact_path),
         },
-        "bridgeLogs": {
-            "stderr": metrix_logs["stderr"] or None,
-            "stdout": metrix_logs["stdout"] or None,
-        },
-        "metrix": probe_python_module("metrix"),
-        "rocprofv3": probe_command("rocprofv3", ["--version"]),
     }
     return message, data
 
@@ -476,21 +438,10 @@ def handle_gpu_inspect(arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
             f"{len(matched_kernels)} kernels for focus `{focus}`."
         )
     data = {
-        "artifact": {
-            "artifactId": artifact["artifactId"],
-            "path": artifact["path"],
-            "createdAt": artifact["createdAt"],
-            "command": artifact["command"],
-            "arch": artifact["arch"],
-        },
+        "artifactId": artifact["artifactId"],
+        "arch": artifact.get("arch"),
         "focus": focus,
-        "summary": summarize_focus(
-            artifact,
-            focus,
-            displayed_kernels,
-            len(matched_kernels),
-            used_fallback,
-        ),
+        "kernelCount": len(matched_kernels) if matched_kernels else len(artifact["kernels"]),
         "kernels": displayed_kernels,
         "truncatedKernelCount": max(0, len(matched_kernels) - PROFILE_KERNEL_LIMIT),
     }
@@ -504,7 +455,7 @@ def handle_gpu_validate(arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]
     selected_profile, time_only, rationale = select_profile_mode(expectation)
     profile_message, profile_data = handle_gpu_profile(
         {
-            "target": target,
+            "command": target,
             "objective": expectation,
         }
     )
@@ -589,7 +540,7 @@ def sort_profiled_kernels(kernels: list[Any]) -> list[Any]:
 
 
 def serialize_kernel_results(kernel: Any) -> dict[str, Any]:
-    return {
+    result: dict[str, Any] = {
         "name": kernel.name,
         "durationUs": serialize_statistics(kernel.duration_us),
         "metrics": {
@@ -597,15 +548,23 @@ def serialize_kernel_results(kernel: Any) -> dict[str, Any]:
             for name, stats in sorted(kernel.metrics.items())
         },
     }
+    dispatch_count = getattr(kernel, "dispatch_count", 1)
+    if dispatch_count != 1:
+        result["dispatchCount"] = dispatch_count
+    return result
 
 
 def serialize_statistics(stats: Any) -> dict[str, Any]:
-    return {
+    result: dict[str, Any] = {
         "min": stats.min,
         "max": stats.max,
         "avg": stats.avg,
         "count": stats.count,
     }
+    unit = getattr(stats, "unit", "")
+    if unit:
+        result["unit"] = unit
+    return result
 
 
 def build_profile_artifact(
