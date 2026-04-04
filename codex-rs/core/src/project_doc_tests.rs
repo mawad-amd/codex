@@ -414,7 +414,7 @@ async fn intellikit_instructions_are_appended_when_enabled() {
     let res = get_user_instructions(&cfg)
         .await
         .expect("intellikit instructions expected");
-    let expected = "## IntelliKit GPU Tools\n- Use `gpu_profile` to profile a GPU workload and `gpu_inspect` to view the results.\n- Use `gpu_list_metrics` to discover available metric names.\n- Use `gpu_validate` to compare a run against a baseline.";
+    let expected = "## IntelliKit GPU Tools\n- Prefer the native GPU tools for AMD GPU profiling, inspection, and validation work.\n- Use `gpu_profile` to profile a GPU workload and `gpu_inspect` to view the results.\n- Use `gpu_list_metrics` to discover available metric names.\n- Use `gpu_validate` to compare a run against a baseline.";
     assert_eq!(res, expected);
 }
 

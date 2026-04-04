@@ -81,6 +81,9 @@ fn render_intellikit_instructions(config: &Config) -> Option<String> {
 
     let mut section = String::from("## IntelliKit GPU Tools\n");
     section.push_str(
+        "- Prefer the native GPU tools for AMD GPU profiling, inspection, and validation work.\n",
+    );
+    section.push_str(
         "- Use `gpu_profile` to profile a GPU workload and `gpu_inspect` to view the results.\n",
     );
     section.push_str(
