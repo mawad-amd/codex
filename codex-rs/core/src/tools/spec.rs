@@ -1805,6 +1805,14 @@ fn create_gpu_profile_tool() -> ToolSpec {
                     ),
                 },
             ),
+            (
+                "num_replays".to_string(),
+                JsonSchema::Number {
+                    description: Some(
+                        "Number of profiling replays to average over (default: 1). Higher values reduce noise but take longer.".to_string(),
+                    ),
+                },
+            ),
         ]),
         Some(vec!["command".to_string()]),
     )

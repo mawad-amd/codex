@@ -320,6 +320,7 @@ def handle_gpu_profile(arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     workload = arguments.get("workload")
     objective = arguments.get("objective")
     explicit_metrics = arguments.get("metrics")
+    num_replays = arguments.get("num_replays", 1)
     command = build_profile_command(target, workload)
     timeout_seconds = int(
         os.environ.get("CODEX_INTELLIKIT_PROFILE_TIMEOUT", PROFILE_TIMEOUT_SECONDS)
@@ -341,6 +342,7 @@ def handle_gpu_profile(arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
             time_only,
             timeout_seconds,
             explicit_metrics,
+            num_replays,
         )
     )
     profiler = metrix_logs["profiler"]
@@ -401,12 +403,13 @@ def run_metrix_profile(
     time_only: bool,
     timeout_seconds: int,
     metrics: list[str] | None = None,
+    num_replays: int = 1,
 ) -> tuple[Any, Any]:
     profiler = metrix_cls()
     kwargs: dict[str, Any] = {
         "command": command,
         "time_only": time_only,
-        "num_replays": 1,
+        "num_replays": num_replays,
         "aggregate_by_kernel": True,
         "timeout_seconds": timeout_seconds,
     }
