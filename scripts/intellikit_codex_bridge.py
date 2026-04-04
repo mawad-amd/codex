@@ -319,11 +319,18 @@ def handle_gpu_profile(arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     target = arguments["command"].strip()
     workload = arguments.get("workload")
     objective = arguments.get("objective")
+    explicit_metrics = arguments.get("metrics")
     command = build_profile_command(target, workload)
-    selected_profile, time_only, rationale = select_profile_mode(objective)
     timeout_seconds = int(
         os.environ.get("CODEX_INTELLIKIT_PROFILE_TIMEOUT", PROFILE_TIMEOUT_SECONDS)
     )
+
+    if explicit_metrics:
+        selected_profile = None
+        time_only = False
+        rationale = f"using {len(explicit_metrics)} explicit metrics"
+    else:
+        selected_profile, time_only, rationale = select_profile_mode(objective)
 
     started = time.time()
     metrix_logs = capture_python_output(
@@ -333,6 +340,7 @@ def handle_gpu_profile(arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
             selected_profile,
             time_only,
             timeout_seconds,
+            explicit_metrics,
         )
     )
     profiler = metrix_logs["profiler"]
@@ -341,6 +349,8 @@ def handle_gpu_profile(arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     kernels = sort_profiled_kernels(results.kernels)
     displayed_kernels = kernels[:PROFILE_KERNEL_LIMIT]
     mode = "time-only mode" if time_only else f"profile `{selected_profile}`"
+    if explicit_metrics:
+        mode = f"{len(explicit_metrics)} explicit metrics"
     available_profiles = profiler.list_profiles()
 
     if results.total_kernels == 0:
@@ -390,16 +400,21 @@ def run_metrix_profile(
     selected_profile: str | None,
     time_only: bool,
     timeout_seconds: int,
+    metrics: list[str] | None = None,
 ) -> tuple[Any, Any]:
     profiler = metrix_cls()
-    results = profiler.profile(
-        command=command,
-        profile=selected_profile,
-        time_only=time_only,
-        num_replays=1,
-        aggregate_by_kernel=True,
-        timeout_seconds=timeout_seconds,
-    )
+    kwargs: dict[str, Any] = {
+        "command": command,
+        "time_only": time_only,
+        "num_replays": 1,
+        "aggregate_by_kernel": True,
+        "timeout_seconds": timeout_seconds,
+    }
+    if metrics:
+        kwargs["metrics"] = metrics
+    else:
+        kwargs["profile"] = selected_profile
+    results = profiler.profile(**kwargs)
     return profiler, results
 
 

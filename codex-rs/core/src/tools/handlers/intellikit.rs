@@ -30,6 +30,8 @@ struct GpuProfileArgs {
     workload: Option<String>,
     #[serde(default)]
     objective: Option<String>,
+    #[serde(default)]
+    metrics: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -114,9 +116,10 @@ fn validate_arguments(tool: IntelliKitTool, arguments: &Value) -> Result<(), Fun
                 command,
                 workload,
                 objective,
+                metrics,
             } = serde_json::from_value::<GpuProfileArgs>(arguments.clone())
                 .map_err(invalid_arguments)?;
-            let _ = (command, workload, objective);
+            let _ = (command, workload, objective, metrics);
         }
         IntelliKitTool::Inspect => {
             let GpuInspectArgs { artifact_id, focus } =

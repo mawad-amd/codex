@@ -1796,6 +1796,15 @@ fn create_gpu_profile_tool() -> ToolSpec {
                     ),
                 },
             ),
+            (
+                "metrics".to_string(),
+                JsonSchema::Array {
+                    items: Box::new(JsonSchema::String { description: None }),
+                    description: Some(
+                        "Optional list of specific metric names to collect (e.g., ['memory.hbm_bandwidth_utilization', 'memory.l2_hit_rate']). Use gpu_list_metrics to discover names. Overrides objective when provided.".to_string(),
+                    ),
+                },
+            ),
         ]),
         Some(vec!["command".to_string()]),
     )
