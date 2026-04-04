@@ -7,6 +7,7 @@ This repository now carries native scaffolding for an IntelliKit-backed GPU tool
 - The integration is gated behind the `intellikit` feature flag.
 - The following native tools are registered when the feature is enabled:
   - `gpu_inventory`
+  - `gpu_list_metrics`
   - `gpu_profile`
   - `gpu_inspect`
   - `gpu_validate`
@@ -17,7 +18,7 @@ This repository now carries native scaffolding for an IntelliKit-backed GPU tool
   - `CODEX_INTELLIKIT_BRIDGE_SCRIPT` points at an explicit Python bridge script.
   - `CODEX_INTELLIKIT_BRIDGE_MODULE` overrides the default bundled bridge script with an importable Python module.
   - `CODEX_INTELLIKIT_ROOT` only sets the bridge working directory and resolves relative script paths. It does not modify Python import paths.
-- `gpu_inventory`, `gpu_profile`, `gpu_inspect`, and `gpu_validate` all execute end-to-end through the same Python-side bridge contract.
+- `gpu_inventory`, `gpu_list_metrics`, `gpu_profile`, `gpu_inspect`, and `gpu_validate` all execute end-to-end through the same Python-side bridge contract.
 - This repo now includes a scaffold bridge script at `scripts/intellikit_codex_bridge.py` that you can point Codex at during bring-up.
 
 ## Immediate Goal
@@ -55,6 +56,10 @@ The bridge script already implements:
 
 - `gpu_inventory`
   - returns platform, interpreter, IntelliKit subcomponent detection, and ROCm command discovery data
+- `gpu_list_metrics`
+  - returns all available GPU performance metric names organized by category (compute, memory bandwidth, memory cache, memory pattern, memory LDS)
+  - uses the Metrix backend to discover metrics supported by the detected GPU architecture, falling back to the Python metric catalog when no GPU is available
+  - call this before `gpu_profile` to discover valid metric names
 - `gpu_profile`
   - runs a real Metrix profiling step for the requested target and maps `objective` onto Metrix profiles such as `quick`, `memory`, `memory_bandwidth`, `memory_cache`, `compute`, or timing-only collection
   - requires the IntelliKit `metrix` package and its runtime dependencies to already be installed in the selected Python environment

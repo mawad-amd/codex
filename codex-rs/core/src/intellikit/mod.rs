@@ -10,6 +10,7 @@ use tokio::time::timeout;
 
 pub(crate) const GPU_INSPECT_TOOL_NAME: &str = "gpu_inspect";
 pub(crate) const GPU_INVENTORY_TOOL_NAME: &str = "gpu_inventory";
+pub(crate) const GPU_LIST_METRICS_TOOL_NAME: &str = "gpu_list_metrics";
 pub(crate) const GPU_PROFILE_TOOL_NAME: &str = "gpu_profile";
 pub(crate) const GPU_VALIDATE_TOOL_NAME: &str = "gpu_validate";
 
@@ -23,6 +24,7 @@ const BRIDGE_TIMEOUT: Duration = Duration::from_secs(30);
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub(crate) enum IntelliKitTool {
     Inventory,
+    ListMetrics,
     Profile,
     Inspect,
     Validate,
@@ -32,6 +34,7 @@ impl IntelliKitTool {
     pub(crate) fn from_tool_name(tool_name: &str) -> Option<Self> {
         match tool_name {
             GPU_INVENTORY_TOOL_NAME => Some(Self::Inventory),
+            GPU_LIST_METRICS_TOOL_NAME => Some(Self::ListMetrics),
             GPU_PROFILE_TOOL_NAME => Some(Self::Profile),
             GPU_INSPECT_TOOL_NAME => Some(Self::Inspect),
             GPU_VALIDATE_TOOL_NAME => Some(Self::Validate),
@@ -42,6 +45,7 @@ impl IntelliKitTool {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Inventory => GPU_INVENTORY_TOOL_NAME,
+            Self::ListMetrics => GPU_LIST_METRICS_TOOL_NAME,
             Self::Profile => GPU_PROFILE_TOOL_NAME,
             Self::Inspect => GPU_INSPECT_TOOL_NAME,
             Self::Validate => GPU_VALIDATE_TOOL_NAME,

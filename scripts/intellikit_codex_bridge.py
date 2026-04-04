@@ -30,11 +30,13 @@ from typing import Any
 REQUEST_KEYS = {"tool", "arguments"}
 GPU_INVENTORY_TOOL = "gpu_inventory"
 GPU_INSPECT_TOOL = "gpu_inspect"
+GPU_LIST_METRICS_TOOL = "gpu_list_metrics"
 GPU_PROFILE_TOOL = "gpu_profile"
 GPU_VALIDATE_TOOL = "gpu_validate"
 KNOWN_TOOLS = {
     GPU_INVENTORY_TOOL,
     GPU_INSPECT_TOOL,
+    GPU_LIST_METRICS_TOOL,
     GPU_PROFILE_TOOL,
     GPU_VALIDATE_TOOL,
 }
@@ -80,6 +82,20 @@ def main() -> int:
 
     if tool == GPU_INVENTORY_TOOL:
         message, data = handle_gpu_inventory()
+        return emit_response(success=True, message=message, data=data)
+
+    if tool == GPU_LIST_METRICS_TOOL:
+        try:
+            message, data = handle_gpu_list_metrics()
+        except Exception as err:
+            return emit_response(
+                success=False,
+                message=f"`{tool}` failed: {err}",
+                data={
+                    "tool": tool,
+                    "metrix": probe_python_module("metrix"),
+                },
+            )
         return emit_response(success=True, message=message, data=data)
 
     if tool == GPU_PROFILE_TOOL:
@@ -268,6 +284,44 @@ def handle_gpu_inventory() -> tuple[str, dict[str, Any]]:
         },
         "toolkitComponents": toolkit_components,
         "commands": command_probes,
+    }
+    return message, data
+
+
+def handle_gpu_list_metrics() -> tuple[str, dict[str, Any]]:
+    try:
+        from metrix import Metrix
+        from metrix.metrics import METRIC_CATALOG
+    except Exception as err:
+        raise RuntimeError(
+            "Metrix is not importable in this interpreter. Install the IntelliKit "
+            "`metrix` package with its runtime dependencies before using "
+            f"`gpu_list_metrics`. Original error: {err}"
+        ) from err
+
+    try:
+        profiler = Metrix()
+        metrics = sorted(profiler.list_metrics())
+    except (RuntimeError, Exception):
+        metrics = sorted(METRIC_CATALOG.keys())
+
+    by_category: dict[str, list[str]] = {}
+    for name in metrics:
+        meta = METRIC_CATALOG.get(name)
+        if meta is not None:
+            cat = meta["category"].value
+        else:
+            cat = name.split(".", 1)[0] if "." in name else "other"
+        by_category.setdefault(cat, []).append(name)
+
+    message = (
+        f"Found {len(metrics)} available GPU performance metrics across "
+        f"{len(by_category)} categories. Use these metric names with gpu_profile."
+    )
+    data = {
+        "metrics": metrics,
+        "byCategory": by_category,
+        "note": "Pass these metric names to gpu_profile to collect specific metrics.",
     }
     return message, data
 

@@ -87,6 +87,9 @@ fn render_intellikit_instructions(config: &Config) -> Option<String> {
         "- Start with `gpu_inventory` to understand the local GPU environment before proposing a profiling plan.\n",
     );
     section.push_str(
+        "- Use `gpu_list_metrics` to discover available metric names before profiling.\n",
+    );
+    section.push_str(
         "- Use `gpu_profile` to collect or plan a profiling run, `gpu_inspect` to drill into a capture or dispatch, and `gpu_validate` to confirm an optimization or regression hypothesis.\n",
     );
     section.push_str(

@@ -20,6 +20,10 @@ struct GpuInventoryArgs {}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct GpuListMetricsArgs {}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct GpuProfileArgs {
     command: String,
     #[serde(default)]
@@ -99,6 +103,10 @@ fn validate_arguments(tool: IntelliKitTool, arguments: &Value) -> Result<(), Fun
     match tool {
         IntelliKitTool::Inventory => {
             serde_json::from_value::<GpuInventoryArgs>(arguments.clone())
+                .map_err(invalid_arguments)?;
+        }
+        IntelliKitTool::ListMetrics => {
+            serde_json::from_value::<GpuListMetricsArgs>(arguments.clone())
                 .map_err(invalid_arguments)?;
         }
         IntelliKitTool::Profile => {

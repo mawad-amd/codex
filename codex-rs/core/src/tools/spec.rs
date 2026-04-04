@@ -5,6 +5,7 @@ use crate::client_common::tools::ToolSpec;
 use crate::config::AgentRoleConfig;
 use crate::intellikit::GPU_INSPECT_TOOL_NAME;
 use crate::intellikit::GPU_INVENTORY_TOOL_NAME;
+use crate::intellikit::GPU_LIST_METRICS_TOOL_NAME;
 use crate::intellikit::GPU_PROFILE_TOOL_NAME;
 use crate::intellikit::GPU_VALIDATE_TOOL_NAME;
 use crate::mcp::CODEX_APPS_MCP_SERVER_NAME;
@@ -1757,6 +1758,15 @@ fn create_gpu_inventory_tool() -> ToolSpec {
     )
 }
 
+fn create_gpu_list_metrics_tool() -> ToolSpec {
+    create_intellikit_tool(
+        GPU_LIST_METRICS_TOOL_NAME,
+        "List all available GPU performance metrics that can be collected by gpu_profile. Returns metric names organized by category (compute, memory bandwidth, memory cache, memory pattern, memory LDS). Call this before gpu_profile to discover valid metric names for the detected GPU architecture.",
+        BTreeMap::new(),
+        /*required*/ None,
+    )
+}
+
 fn create_gpu_profile_tool() -> ToolSpec {
     create_intellikit_tool(
         GPU_PROFILE_TOOL_NAME,
@@ -2945,6 +2955,12 @@ pub(crate) fn build_specs_with_discoverable_tools(
         );
         push_tool_spec(
             &mut builder,
+            create_gpu_list_metrics_tool(),
+            /*supports_parallel_tool_calls*/ false,
+            config.code_mode_enabled,
+        );
+        push_tool_spec(
+            &mut builder,
             create_gpu_profile_tool(),
             /*supports_parallel_tool_calls*/ false,
             config.code_mode_enabled,
@@ -2962,6 +2978,7 @@ pub(crate) fn build_specs_with_discoverable_tools(
             config.code_mode_enabled,
         );
         builder.register_handler(GPU_INVENTORY_TOOL_NAME, intellikit_handler.clone());
+        builder.register_handler(GPU_LIST_METRICS_TOOL_NAME, intellikit_handler.clone());
         builder.register_handler(GPU_PROFILE_TOOL_NAME, intellikit_handler.clone());
         builder.register_handler(GPU_INSPECT_TOOL_NAME, intellikit_handler.clone());
         builder.register_handler(GPU_VALIDATE_TOOL_NAME, intellikit_handler);
